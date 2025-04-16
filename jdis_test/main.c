@@ -6,85 +6,29 @@
 
 #define WORD_LEN_MAX 31
 
-int main(int argc, char *argv[])
-{
-    setlocale(LC_ALL, "");
-
-    // Options
-    int opt_g = 0;
-    int opt_i = 0;
-    int opt_p = 0;
-
-    // Fichiers restants à traiter
-    int first_file_arg = 1;
-
-    // Lecture des options
-    for (int i = 1; i < argc; ++i)
-    {
-        if (strcmp(argv[i], "-g") == 0)
-        {
-            opt_g = 1;
-        }
-        else if (strcmp(argv[i], "-i") == 0)
-        {
-            opt_i = 1;
-        }
-        else if (strcmp(argv[i], "-p") == 0)
-        {
-            opt_p = 1;
-        }
-        else
-        {
-            first_file_arg = i;
-            break;
-        }
+int main(int argc, char *argv[]) {
+    if (argc != 3) {
+        fprintf(stderr, "Usage: %s fichier1.txt fichier2.txt\n", argv[0]);
+        return 1;
     }
 
-    if (first_file_arg >= argc)
-    {
-        fprintf(stderr, "Usage: %s [-g] [-i] [-p] file1.txt [file2.txt ...]\n", argv[0]);
-        return EXIT_FAILURE;
+    // Charge les mots uniques des deux fichiers
+    hashtable *ht1 = get_unique_words(argv[1]);
+    hashtable *ht2 = get_unique_words(argv[2]);
+
+    if (!ht1 || !ht2) {
+        hashtable_dispose(&ht1);
+        hashtable_dispose(&ht2);
+        return 1;
     }
 
-    jdis *jd = jdis_empty();
-    if (jd == nullptr)
-    {
-        fprintf(stderr, "*** Error: could not allocate jdis\n");
-        return EXIT_FAILURE;
-    }
+    // Calcule et affiche la distance
+    float distance = jaccard_distance(ht1, ht2);
+    printf("Distance de Jaccard: %.4f\n", distance);
 
-    int status = EXIT_SUCCESS;
+    // Libère la mémoire
+    hashtable_dispose(&ht1);
+    hashtable_dispose(&ht2);
 
-    // Lecture et traitement de chaque fichier
-    for (int i = first_file_arg; i < argc; ++i)
-    {
-        const char *filename = argv[i];
-        FILE *f = fopen(filename, "r");
-        if (f == nullptr)
-        {
-            fprintf(stderr, "*** Warning: Cannot open file: %s\n", filename);
-            status = EXIT_FAILURE;
-            continue;
-        }
-
-        if (jdis_process_file(jd, filename, f, opt_i ? 0 : WORD_LEN_MAX, opt_p) != 0)
-        {
-            fprintf(stderr, "*** Warning: Could not process file: %s\n", filename);
-            status = EXIT_FAILURE;
-        }
-
-        fclose(f);
-    }
-
-    if (opt_g)
-    {
-        jdis_afficher_graphe(jd);
-    }
-    else
-    {
-        jdis_calculer_distances(jd);
-    }
-
-    jdis_dispose(&jd);
-    return status;
+    return 0;
 }
