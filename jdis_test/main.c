@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 void print_help(void);
+void print_usage(void);
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
@@ -15,8 +16,15 @@ int main(int argc, char *argv[]) {
     print_help();
     return EXIT_SUCCESS;
   }
-  // Additional functionality would be implemented here
+  if (argc >= 2 && strcmp(argv[1], "--usage") == 0) {
+    print_usage();
+    return EXIT_SUCCESS;
+  }
   return EXIT_SUCCESS;
+}
+
+void print_usage(void) {
+  printf("Usage: jdis [OPTION]... FILE1 FILE2 [FILE]...\n");
 }
 
 void print_help(void) {
