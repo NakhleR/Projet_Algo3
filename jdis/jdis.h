@@ -6,6 +6,6 @@
 #include "holdall.h"
 
 hashtable *get_unique_words(const char *filename);
-float jaccard_distance(hashtable *ht1, hashtable *ht2);
+//float jaccard_distance(hashtable *ht1, hashtable *ht2);
 
 #endif
