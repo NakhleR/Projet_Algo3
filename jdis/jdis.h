@@ -7,5 +7,5 @@
 
 hashtable *get_unique_words(const char *filename);
 //float jaccard_distance(hashtable *ht1, hashtable *ht2);
-
+void hashtable__print_values(hashtable *ht);
 #endif

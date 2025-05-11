@@ -58,6 +58,18 @@ hashtable *get_unique_words(const char *filename) {
   return ht;
 }
 
+void hashtable__print_values(hashtable *ht) {
+  for (size_t i; i < (ht->nslots); i+=1) {
+    cell *cur = (ht->hasharray[i]);
+    while(cur != nullptr) {
+      const char *val = (const char *)(cur->valref);
+      printf("%s\n", val);
+      cur = cur->next;
+    }
+  }
+}
+
+
 // Nouvelle implémentation sans accès direct à la structure interne
 //float jaccard_distance(hashtable *ht1, hashtable *ht2) {
 

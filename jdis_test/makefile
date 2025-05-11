@@ -9,7 +9,7 @@ CFLAGS = -std=c2x \
   -DHASHTABLE_STATS=0
 vpath %.c $(jdis_dir) $(hashtable_dir) $(holdall_dir)
 vpath %.h $(jdis_dir) $(hashtable_dir) $(holdall_dir)
-objects = main1.o jdis.o hashtable.o holdall.o
+objects = main.o jdis.o hashtable.o holdall.o
 executable = jdis
 makefile_indicator = .\#makefile\#
 
