@@ -1,10 +1,14 @@
 #ifndef JDIS_H
 #define JDIS_H
 
-#include <stdio.h>
+#include <stddef.h>
+#include "hashtable.h"
+#include "holdall.h"
 
-typedef struct jdis jdis;
+hashtable *get_unique_words(const char *filename);
+//float jaccard_distance(hashtable *ht1, hashtable *ht2);
 
-extern jdis *jdis_empty(void);
+void print_usage(void);
+void print_help(void);
 
 #endif
