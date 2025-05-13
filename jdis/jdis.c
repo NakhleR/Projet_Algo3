@@ -4,21 +4,22 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stddef.h>
 typedef struct cell cell;
-typedef struct hashtable hashtable;
+
 struct hashtable {
-    int (*compar)(const void *, const void *);
-    size_t (*hashfun)(const void *);
-    double lfmax;
-    struct cell **hasharray;
-    size_t nslots;
-    size_t nentries;
+  int (*compar)(const void *, const void *);
+  size_t (*hashfun)(const void *);
+  double lfmax;
+  struct cell **hasharray;
+  size_t nslots;
+  size_t nentries;
 };
 
-struct cell {
-    const void *keyref;
-    const void *valref;
-    struct cell *next;
+struct cell { // This definition is for jdis.c internal use
+  const void *keyref;
+  const void *valref;
+  struct cell *next;
 };
 // Fonction pour comparer deux chaînes
 int compare_strings(const void *a, const void *b) {
@@ -47,36 +48,32 @@ size_t hash_string(const void *key) {
 //return 0;
 //}
 
-// Fonction pour lire les mots d'un fichier
 hashtable *get_words(const char *filename) {
   FILE *file = fopen(filename, "r");
   if (file == nullptr) {
     fprintf(stderr, "Error : unable to open %s\n", filename);
     return nullptr;
   }
-  hashtable *ht = hashtable_empty(compare_strings, hash_string, 0.75);
-  if (ht == nullptr) {
+  struct hashtable *ht_internal
+    = (struct hashtable *) hashtable_empty(compare_strings, hash_string, 0.75);
+  if (ht_internal == nullptr) {
     fclose(file);
     return nullptr;
   }
-
-  //Pourquoi l'utilisation d'une copie???
   char word[256];
   while (fscanf(file, "%255s", word) == 1) {
     char *word_copy = strdup(word);
     if (word_copy == nullptr) {
       fclose(file);
-      hashtable_dispose(&ht);
+      hashtable_dispose((hashtable **) &ht_internal);
       return nullptr;
     }
-    hashtable_add(ht, word_copy, (void *) 1);
-    free(word_copy);
+    hashtable_add((hashtable *) ht_internal, word_copy, (void *) 1);
   }
   fclose(file);
-  return ht;
+  return (hashtable *) ht_internal; // Return the opaque pointer
 }
 
-//OUTILS D'AFFICHAGE
 void print_usage(void) {
   printf("Usage: jdis [OPTION]... FILE1 FILE2 [FILE]...\n");
 }
@@ -163,31 +160,65 @@ void print_help(void) {
 }
 
 //CALCUL DE LA DISTANCE
-float jaccard_distance(hashtable *ht1, hashtable *ht2) {
+float jaccard_distance(hashtable *ht1_opaque, hashtable *ht2_opaque) {
+  // Cast opaque pointers to local struct for manipulation
+  struct hashtable *ht1 = (struct hashtable *) ht1_opaque;
+  struct hashtable *ht2 = (struct hashtable *) ht2_opaque;
   if (ht1 == nullptr || ht2 == nullptr) {
     return 1.0f;
   }
-
   size_t common = 0;
   size_t total = 0;
   for (size_t i = 0; i < (ht1->nslots); ++i) {
-    cell *curr = ht1->hasharray[i];
+    struct cell *curr = ht1->hasharray[i]; // Use local cell definition
     while (curr != nullptr) {
       total += 1;
-      if (hashtable_search(ht2, curr->keyref) != nullptr) {
+      // Pass opaque pointer to hashtable_search
+      if (hashtable_search((hashtable *) ht2, curr->keyref) != nullptr) {
         common += 1;
       }
       curr = curr->next;
     }
   }
   for (size_t i = 0; i < ht2->nslots; ++i) {
-    cell *curr = ht2->hasharray[i];
+    struct cell *curr = ht2->hasharray[i]; // Use local cell definition
     while (curr != nullptr) {
-      if (hashtable_search(ht1, curr->keyref) == nullptr) {
+      // Pass opaque pointer to hashtable_search
+      if (hashtable_search((hashtable *) ht1, curr->keyref) == nullptr) {
         total++;
       }
       curr = curr->next;
     }
   }
   return (total == 0) ? 0.0f : 1.0f - ((float) common / (float) total);
+}
+
+// Function to free keys before disposing the hashtable
+void jdis_free_hashtable_content(hashtable *ht_opaque) {
+  if (ht_opaque == nullptr) {
+    return;
+  }
+  // Cast opaque pointer to local struct for manipulation
+  struct hashtable *ht_internal = (struct hashtable *) ht_opaque;
+  for (size_t i = 0; i < ht_internal->nslots; ++i) {
+    struct cell *current_cell = ht_internal->hasharray[i];
+    while (current_cell != nullptr) {
+      free((void *) current_cell->keyref); // Free the strdup'd key
+      current_cell = current_cell->next;
+    }
+  }
+}
+
+void jdis_dispose_hashtable_array(hashtable **htt, size_t count) {
+  if (htt == nullptr) {
+    return;
+  }
+  for (size_t i = 0; i < count; ++i) {
+    if (htt[i] != nullptr) {
+      jdis_free_hashtable_content(htt[i]); // Free the keys first
+      hashtable_dispose(&htt[i]);          // Then dispose the hashtable
+                                           // structure
+    }
+  }
+  free(htt); // Finally, free the array of hashtable pointers
 }

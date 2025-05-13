@@ -2,17 +2,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <locale.h>
-#include "hashtable.h"
-#include "holdall.h"
-#include "jdis.h"
+#include "hashtable.h" // Only for `hashtable` type, not its internal functions
+#include "holdall.h"   // If used directly by main, otherwise can be removed if
+                       // only jdis uses it
+#include "jdis.h"      // Now includes all jdis provided functions like
+                       // get_words, jaccard_distance, and
+                       // jdis_dispose_hashtable_array
+// #include <stddef.h> // Not strictly needed if using NULL
 
 #define WORD_LEN_MAX 31
-void hashtable__tab_dispose(hashtable **htt, size_t count) {
-  for (size_t i = 0; i < count; ++i) {
-    hashtable_dispose(&htt[i]);
-  }
-  free(htt);
-}
+
+// The function hashtable__tab_dispose is now removed, its logic is in
+// jdis_dispose_hashtable_array.
 
 int main(int argc, char *argv[]) {
   if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1],
@@ -29,41 +30,29 @@ int main(int argc, char *argv[]) {
     printf("Try 'jdis --help' for more information.\n");
     return EXIT_FAILURE;
   }
-  // Charge les mots uniques de chaque fichier dans une table
-  size_t filenumb = (size_t)argc - 1;
+  size_t filenumb = (size_t) argc - 1;
   hashtable **ht_tab = malloc(sizeof(*ht_tab) * filenumb);
+  if (ht_tab == NULL) { // Reverted to NULL
+    perror("Failed to allocate memory for hashtable array");
+    return EXIT_FAILURE;
+  }
   for (size_t i = 0; i < filenumb; ++i) {
     ht_tab[i] = get_words(argv[i + 1]);
-    if (ht_tab[i] == nullptr) {
-      printf("An Error occured while putting the words into the hashtables\n");
-      hashtable__tab_dispose(ht_tab, i);
+    if (ht_tab[i] == NULL) { // Reverted to NULL
+      printf("An Error occurred while processing file: %s\n", argv[i + 1]);
+      // Dispose of already allocated hashtables and the array itself
+      jdis_dispose_hashtable_array(ht_tab, i); // Pass 'i' as count of
+                                               // initialized tables
       return EXIT_FAILURE;
     }
   }
-
-
-  //hashtable *ht1 = get_words(argv[1]);
-  //hashtable *ht2 = get_words(argv[2]);
-
-  //if (ht1 == nullptr || ht2 == nullptr) {
-    //hashtable_dispose(&ht1);
-    //hashtable_dispose(&ht2);
-    //return 1;
-  //}
-  for(size_t j = 1; j < filenumb; ++j) {
+  for (size_t j = 1; j < filenumb; ++j) {
     for (size_t k = j + 1; k <= filenumb; ++k) {
-      float d = jaccard_distance(ht_tab[j-1], ht_tab[k-1]);
-      printf("(%ld::%ld)\n",j ,k);
+      float d = jaccard_distance(ht_tab[j - 1], ht_tab[k - 1]);
+      printf("(%ld::%ld)\n", j, k);
       printf("%4f\t%s\t%s\n", d, argv[j], argv[k]);
     }
   }
-  //float distance = jaccard_distance(ht1, ht2);
-
-  //printf("%.4f\t%s\t%s\n", distance, argv[1], argv[2]);
-   //Libère la mémoire
-  //hashtable_dispose(&ht1);
-  //hashtable_dispose(&ht2);
-
-  hashtable__tab_dispose(ht_tab, filenumb - 1);
+  jdis_dispose_hashtable_array(ht_tab, filenumb);
   return EXIT_SUCCESS;
 }
