@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
   // --- Argument Parsing ---
   // Start checking from argv[1]
   for (int i = 1; i < argc; ++i) {
-    if (strcmp(argv[i], "-g") == 0) {
+    if (strcmp(argv[i], "-g") == 0 || strcmp(argv[i], "--graph") == 0) {
       graph_mode = true;
       opt_args_count++;
     } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-?") == 0) {
@@ -48,6 +48,19 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "jdis: Option -i requires a value.\n");
         return EXIT_FAILURE;
       }
+    } else if (strncmp(argv[i], "--initial=", strlen("--initial=")) == 0) {
+      const char *value_str = argv[i] + strlen("--initial=");
+      char *endptr;
+      long val = strtol(value_str, &endptr, 10);
+      if (endptr == value_str || *endptr != '\0' || errno == ERANGE
+          || val < 0) {
+        fprintf(stderr,
+            "jdis: Invalid value for --initial: '%s'. Must be a non-negative integer.\n",
+            value_str);
+        return EXIT_FAILURE;
+      }
+      initial_letters_limit = (int) val;
+      opt_args_count++; // for --initial=VALUE
     } else if (strcmp(argv[i], "-p") == 0 || strcmp(argv[i],
         "--punctuation-like-space") == 0) {
       punctuation_as_space = true;
