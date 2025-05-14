@@ -3,8 +3,10 @@
 
 #include "hashtable.h"
 #include "holdall.h"
+#include <stdbool.h>
 
-holdall *get_words(const char *filename, int initial_letters_limit);
+holdall *get_words(const char *filename, int initial_letters_limit,
+    bool punctuation_as_space);
 float jaccard_distance(holdall *ha1, holdall *ha2);
 void jdis_free_holdall_content(holdall *ha);
 void jdis_dispose_holdall_array(holdall **ha_array, size_t count);

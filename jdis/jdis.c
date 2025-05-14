@@ -5,10 +5,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdbool.h>
 
 // Fonction pour comparer deux chaînes
 int compare_strings(const void *a, const void *b) {
-  return strcmp((const char *) a, (const char *) b);
+  return strcoll((const char *) a, (const char *) b);
 }
 
 // Fonction de hachage (djb2)
@@ -41,96 +42,245 @@ static int free_word_in_holdall_callback(void *word_ref) {
 
 // Function to free strdup'd keys stored in a holdall
 void jdis_free_holdall_content(holdall *ha) {
-  if (ha == nullptr) {
+  if (ha == NULL) {
     return;
   }
   holdall_apply(ha, free_word_in_holdall_callback);
 }
 
-// Modified get_words to return holdall*
-holdall *get_words(const char *filename, int initial_letters_limit) {
-  FILE *file = fopen(filename, "r");
-  if (file == nullptr) {
-    fprintf(stderr, "Error : unable to open %s\n", filename);
-    return nullptr;
+// Modified get_words to return holdall* and handle punctuation_as_space, and
+// dynamic buffer
+holdall *get_words(const char *filename, int initial_letters_limit,
+    bool punctuation_as_space) {
+  FILE *file;
+  bool reading_stdin = (strcmp(filename, "-") == 0);
+  if (reading_stdin) {
+    file = stdin;
+  } else {
+    file = fopen(filename, "r");
+    if (file == NULL) {
+      fprintf(stderr, "Error: unable to open %s\n", filename);
+      return NULL;
+    }
   }
   holdall *words_ha = holdall_empty();
-  if (words_ha == nullptr) {
-    fclose(file);
+  if (words_ha == NULL) {
+    if (!reading_stdin) {
+      fclose(file);
+    }
     fprintf(stderr, "Error: Failed to allocate holdall in get_words for %s\n",
-        filename);
-    return nullptr;
+        reading_stdin ? "stdin" : filename);
+    return NULL;
   }
-  // Temporary hashtable for uniqueness checking
-  hashtable *temp_uniqueness_ht = hashtable_empty(compare_strings, hash_string,
-      0.75);
-  if (temp_uniqueness_ht == nullptr) {
-    fclose(file);
-    holdall_dispose(&words_ha); // words_ha is empty, no content to free yet
+  hashtable *temp_uniqueness_ht
+    = hashtable_empty(compare_strings, hash_string, 0.75);
+  if (temp_uniqueness_ht == NULL) {
+    if (!reading_stdin) {
+      fclose(file);
+    }
+    holdall_dispose(&words_ha);
     fprintf(stderr,
         "Error: Failed to allocate temp hashtable in get_words for %s\n",
-        filename);
-    return nullptr;
+        reading_stdin ? "stdin" : filename);
+    return NULL;
   }
-  char word_buffer[256];
-  char processed_word_buffer[256];
-  while (fscanf(file, "%254s", word_buffer) == 1) {
-    const char *word_to_process;
+  char static_word_buffer[256]; // Used when initial_letters_limit > 0 (and word
+                                // fits)
+  char *dynamic_word_buffer = NULL; // Used when initial_letters_limit == 0
+  size_t dynamic_buffer_capacity = 0;
+  char *current_word_assembly_buffer = NULL; // Points to static or dynamic
+                                             // buffer
+  char processed_word_buffer[256]; // For truncation output if needed
+  int char_code;
+  int word_idx = 0;
+  while ((char_code = fgetc(file)) != EOF) {
+    char current_char = (char) char_code;
+    bool is_delimiter
+      = isspace(current_char)
+        || (punctuation_as_space && ispunct(current_char));
+    if (!is_delimiter) {
+      if (initial_letters_limit == 0) { // Use dynamic buffer
+        if (dynamic_word_buffer == NULL) { // First char of a word, allocate
+          dynamic_buffer_capacity = 256; // Initial capacity
+          dynamic_word_buffer = malloc(dynamic_buffer_capacity);
+          if (dynamic_word_buffer == NULL) {
+            fprintf(stderr,
+                "Error: malloc failed for dynamic_word_buffer in %s\n",
+                reading_stdin ? "stdin" : filename);
+            goto cleanup_error_dynamic_buffer; // Unified cleanup
+          }
+        } else if ((size_t) word_idx >= dynamic_buffer_capacity - 1) { // -1 for
+                                                                       // NULL
+                                                                       // terminator
+          dynamic_buffer_capacity *= 2;
+          char *temp_realloc = realloc(dynamic_word_buffer,
+              dynamic_buffer_capacity);
+          if (temp_realloc == NULL) {
+            fprintf(stderr,
+                "Error: realloc failed for dynamic_word_buffer in %s\n",
+                reading_stdin ? "stdin" : filename);
+            goto cleanup_error_dynamic_buffer; // Unified cleanup
+          }
+          dynamic_word_buffer = temp_realloc;
+        }
+        dynamic_word_buffer[word_idx++] = current_char;
+        current_word_assembly_buffer = dynamic_word_buffer;
+      } else { // initial_letters_limit > 0. Use static_word_buffer if word part
+               // fits, else process.
+        if ((size_t) word_idx < sizeof(static_word_buffer) - 1) {
+          static_word_buffer[word_idx++] = current_char;
+        } else { // Static buffer is full, process current content
+          static_word_buffer[word_idx] = '\0'; // Null-terminate current segment
+          current_word_assembly_buffer = static_word_buffer;
+          // --- Process word (common block) --- START
+          const char *word_to_process = current_word_assembly_buffer;
+          // Truncation for -i > 0 is applied here
+          if ((int) strlen(current_word_assembly_buffer)
+              > initial_letters_limit) {
+            strncpy(processed_word_buffer, current_word_assembly_buffer,
+                (size_t) initial_letters_limit);
+            processed_word_buffer[initial_letters_limit] = '\0';
+            word_to_process = processed_word_buffer;
+            fprintf(stderr,
+                "Warning: Word '%s...' truncated to '%s' from file '%s' due to -i %d limit.\n",
+                current_word_assembly_buffer, processed_word_buffer,
+                reading_stdin ? "stdin" : filename, initial_letters_limit);
+          }
+          if (hashtable_search(temp_uniqueness_ht, word_to_process) == NULL) {
+            char *word_copy = strdup(word_to_process);
+            if (word_copy == NULL) {
+              goto cleanup_error_dynamic_buffer;
+            }
+            if (hashtable_add(temp_uniqueness_ht, word_copy,
+                (void *) 1) == NULL) {
+              free(word_copy);
+              goto cleanup_error_dynamic_buffer;
+            }
+            if (holdall_put(words_ha, word_copy) != 0) {
+              hashtable_remove(temp_uniqueness_ht, word_copy);
+              free(word_copy);
+              goto cleanup_error_dynamic_buffer;
+            }
+          }
+          // --- Process word (common block) --- END
+          word_idx = 0; // Reset static_word_buffer index
+          static_word_buffer[word_idx++] = current_char; // current_char starts
+                                                         // the new segment
+        }
+        current_word_assembly_buffer = static_word_buffer;
+      }
+    } else { // Is a delimiter
+      if (word_idx > 0) { // We have a word in the buffer
+        // Determine which buffer was being used based on initial_letters_limit
+        current_word_assembly_buffer = (initial_letters_limit
+            == 0) ? dynamic_word_buffer : static_word_buffer;
+        current_word_assembly_buffer[word_idx] = '\0';
+        // --- Process word (common block) --- START
+        const char *word_to_process = current_word_assembly_buffer;
+        if (initial_letters_limit > 0
+            && (int) strlen(current_word_assembly_buffer)
+            > initial_letters_limit) {
+          strncpy(processed_word_buffer, current_word_assembly_buffer,
+              (size_t) initial_letters_limit);
+          processed_word_buffer[initial_letters_limit] = '\0';
+          word_to_process = processed_word_buffer;
+          fprintf(stderr,
+              "Warning: Word '%s...' truncated to '%s' from file '%s' due to -i %d limit.\n",
+              current_word_assembly_buffer, processed_word_buffer,
+              reading_stdin ? "stdin" : filename, initial_letters_limit);
+        }
+        // No specific truncation for initial_letters_limit == 0 here, full word
+        // is processed.
+        if (hashtable_search(temp_uniqueness_ht, word_to_process) == NULL) {
+          char *word_copy = strdup(word_to_process);
+          if (word_copy == NULL) {
+            goto cleanup_error_dynamic_buffer;
+          }
+          if (hashtable_add(temp_uniqueness_ht, word_copy,
+              (void *) 1) == NULL) {
+            free(word_copy);
+            goto cleanup_error_dynamic_buffer;
+          }
+          if (holdall_put(words_ha, word_copy) != 0) {
+            hashtable_remove(temp_uniqueness_ht, word_copy);
+            free(word_copy);
+            goto cleanup_error_dynamic_buffer;
+          }
+        }
+        // --- Process word (common block) --- END
+        word_idx = 0; // Reset for next word
+        if (initial_letters_limit == 0 && dynamic_word_buffer != NULL) {
+          // For dynamic buffer, effectively reset it for the next word by only
+          // changing word_idx.
+          // Content will be overwritten or buffer realloc'd if needed.
+        }
+      }
+    }
+  }
+  // After EOF, check if there's a pending word in the buffer
+  if (word_idx > 0) {
+    current_word_assembly_buffer = (initial_letters_limit
+        == 0) ? dynamic_word_buffer : static_word_buffer;
+    current_word_assembly_buffer[word_idx] = '\0';
+    // --- Process word (common block) --- START
+    const char *word_to_process = current_word_assembly_buffer;
     if (initial_letters_limit > 0
-        && (int) strlen(word_buffer) > initial_letters_limit) {
-      strncpy(processed_word_buffer, word_buffer,
+        && (int) strlen(current_word_assembly_buffer) > initial_letters_limit) {
+      strncpy(processed_word_buffer, current_word_assembly_buffer,
           (size_t) initial_letters_limit);
       processed_word_buffer[initial_letters_limit] = '\0';
       word_to_process = processed_word_buffer;
-    } else {
-      word_to_process = word_buffer;
+      fprintf(stderr,
+          "Warning: Word '%s...' truncated to '%s' from file '%s' due to -i %d limit.\n",
+          current_word_assembly_buffer, processed_word_buffer,
+          reading_stdin ? "stdin" : filename, initial_letters_limit);
     }
-    if (hashtable_search(temp_uniqueness_ht, word_to_process) == nullptr) {
+    if (hashtable_search(temp_uniqueness_ht, word_to_process) == NULL) {
       char *word_copy = strdup(word_to_process);
-      if (word_copy == nullptr) {
-        fclose(file);
-        jdis_free_holdall_content(words_ha); // Free already added words
-        holdall_dispose(&words_ha);
-        hashtable_dispose(&temp_uniqueness_ht);
-        fprintf(stderr, "Error: strdup failed in get_words for %s\n", filename);
-        return nullptr;
+      if (word_copy == NULL) {
+        goto cleanup_error_dynamic_buffer;
       }
-      // Add to temp_uniqueness_ht to mark as seen. Value is (void*)1
-      // (placeholder).
-      if (hashtable_add(temp_uniqueness_ht, word_copy, (void *) 1) == nullptr) {
-        // This implies OOM as key should be new.
+      if (hashtable_add(temp_uniqueness_ht, word_copy, (void *) 1) == NULL) {
         free(word_copy);
-        fclose(file);
-        jdis_free_holdall_content(words_ha);
-        holdall_dispose(&words_ha);
-        hashtable_dispose(&temp_uniqueness_ht);
-        fprintf(stderr,
-            "Error: Failed to add to temp_uniqueness_ht in get_words for %s\n",
-            filename);
-        return nullptr;
+        goto cleanup_error_dynamic_buffer;
       }
       if (holdall_put(words_ha, word_copy) != 0) {
-        // word_copy was added to temp_uniqueness_ht, but not words_ha.
-        // To prevent memory leak, it should be freed.
-        // And removed from temp_uniqueness_ht to reflect state accurately,
-        // though ht is temporary. Simplest is to free and error out.
-        hashtable_remove(temp_uniqueness_ht, word_copy); // Remove to allow
-                                                         // re-processing if
-                                                         // needed
+        hashtable_remove(temp_uniqueness_ht, word_copy);
         free(word_copy);
-        fclose(file);
-        jdis_free_holdall_content(words_ha);
-        holdall_dispose(&words_ha);
-        hashtable_dispose(&temp_uniqueness_ht);
-        fprintf(stderr, "Error: holdall_put failed in get_words for %s\n",
-            filename);
-        return nullptr;
+        goto cleanup_error_dynamic_buffer;
       }
     }
+    // --- Process word (common block) --- END
   }
-  fclose(file);
+  if (!reading_stdin) {
+    fclose(file);
+  }
+  if (dynamic_word_buffer != NULL) {
+    free(dynamic_word_buffer);
+  }
   hashtable_dispose(&temp_uniqueness_ht);
   return words_ha;
+cleanup_error_dynamic_buffer:
+  // Unified cleanup path
+  if (dynamic_word_buffer != NULL) {
+    free(dynamic_word_buffer);
+  }
+  // Fall through to existing resource cleanup for file, holdall, hashtable
+  // cleanup_error: // This label is implicitly part of the above now
+  if (!reading_stdin && file != NULL && file != stdin) {
+    fclose(file); // Ensure file is valid before closing
+  }
+  if (words_ha != NULL) { // Ensure words_ha was allocated before freeing
+                          // content
+    jdis_free_holdall_content(words_ha);
+    holdall_dispose(&words_ha);
+  }
+  if (temp_uniqueness_ht != NULL) {
+    hashtable_dispose(&temp_uniqueness_ht);
+  }
+  fprintf(stderr, "Error during word processing for %s\n",
+      reading_stdin ? "stdin" : filename);
+  return NULL;
 }
 
 void print_usage(void) {
@@ -226,17 +376,17 @@ void print_help(void) {
 static void *fun1_populate_temp_ht(void *context_temp_ht, void *word_ref) {
   hashtable *temp_ht = (hashtable *) context_temp_ht;
   // Words in ha1 (from get_words) are unique.
-  // So, if hashtable_add returns nullptr, it's an OOM for a new key.
+  // So, if hashtable_add returns NULL, it's an OOM for a new key.
   return hashtable_add(temp_ht, word_ref, (void *) 1);
 }
 
 static int fun2_check_populate_error(void *word_ref,
     void *add_result_from_fun1) {
   (void) word_ref; // word_ref is unused in this checker
-  // If add_result_from_fun1 is nullptr (error from fun1_populate_temp_ht),
+  // If add_result_from_fun1 is NULL (error from fun1_populate_temp_ht),
   // return
   // 1 to stop.
-  return (add_result_from_fun1 == nullptr) ? 1 : 0;
+  return (add_result_from_fun1 == NULL) ? 1 : 0;
 }
 
 // For counting common elements (these can remain as they are efficient)
@@ -254,18 +404,18 @@ static int jd_count_common_check_word(void *word_ref_from_ha,
     void *ctx_from_fun1) {
   jd_count_common_context_t *context
     = (jd_count_common_context_t *) ctx_from_fun1;
-  if (hashtable_search(context->ht_to_search, word_ref_from_ha) != nullptr) {
+  if (hashtable_search(context->ht_to_search, word_ref_from_ha) != NULL) {
     (*context->common_count)++;
   }
   return 0; // Continue apply
 }
 
 float jaccard_distance(holdall *ha1, holdall *ha2) {
-  if (ha1 == nullptr || ha2 == nullptr) {
-    // Consider if one is nullptr and other is not. If both non-nullptr but one
+  if (ha1 == NULL || ha2 == NULL) {
+    // Consider if one is NULL and other is not. If both non-NULL but one
     // is
     // empty,
-    // current logic handles it. If passed nullptr explicitly, 1.0f is
+    // current logic handles it. If passed NULL explicitly, 1.0f is
     // reasonable.
     return 1.0f;
   }
@@ -279,7 +429,7 @@ float jaccard_distance(holdall *ha1, holdall *ha2) {
   // Distance = 1.0 - (0 / count_non_empty) = 1.0. Correct.
   hashtable *temp_ht_from_ha1 = hashtable_empty(compare_strings, hash_string,
       0.75);
-  if (temp_ht_from_ha1 == nullptr) {
+  if (temp_ht_from_ha1 == NULL) {
     fprintf(stderr,
         "Error: Failed to create temp hashtable for Jaccard distance.\n");
     return 1.0f; // Cannot compute accurately
@@ -316,11 +466,11 @@ float jaccard_distance(holdall *ha1, holdall *ha2) {
 // Already defined above as jdis_free_holdall_content
 
 void jdis_dispose_holdall_array(holdall **ha_array, size_t count) {
-  if (ha_array == nullptr) {
+  if (ha_array == NULL) {
     return;
   }
   for (size_t i = 0; i < count; ++i) {
-    if (ha_array[i] != nullptr) {
+    if (ha_array[i] != NULL) {
       jdis_free_holdall_content(ha_array[i]);
       holdall_dispose(&ha_array[i]);
     }
@@ -345,9 +495,9 @@ static int hgo_populate_temp_ht_add_word(void *word_ref, void *ctx_from_fun1) {
   hgo_populate_temp_ht_context_t *context
     = (hgo_populate_temp_ht_context_t *) ctx_from_fun1;
   // Assuming word_ref are unique char* from get_words, and ht is fresh.
-  if (hashtable_add(context->ht, word_ref, (void *) 1) == nullptr) {
+  if (hashtable_add(context->ht, word_ref, (void *) 1) == NULL) {
     void *search_result = hashtable_search(context->ht, word_ref);
-    if (search_result == nullptr) { // If add failed for a truly new key (OOM)
+    if (search_result == NULL) { // If add failed for a truly new key (OOM)
       context->error_flag = 1;
       return 1; // Stop apply
     }
@@ -373,11 +523,11 @@ static int hgo_collect_words_add_master(void *word_key_ref,
   hgo_collect_words_context_t *ctx
     = (hgo_collect_words_context_t *) ctx_from_fun1;
   const char *word_key = (const char *) word_key_ref;
-  if (hashtable_search(ctx->master_registry_ht, word_key) == nullptr) {
+  if (hashtable_search(ctx->master_registry_ht, word_key) == NULL) {
     // word_key points to string owned by one of the file_holdalls.
     // Master registry and holdall will store this pointer, not a new copy.
     if (hashtable_add(ctx->master_registry_ht, (void *) word_key,
-        (void *) 1) == nullptr) {
+        (void *) 1) == NULL) {
       // OOM adding to master registry
       ctx->error_flag = 1;
       return 1;
@@ -415,9 +565,9 @@ static int print_row_via_fun2(void *word_ref, void *context_from_fun1) {
   printf("%s", current_word_str);
   for (size_t j = 0; j < actual_context->num_files; ++j) {
     printf("\t");
-    if (actual_context->temp_file_hts_for_lookup[j] != nullptr
+    if (actual_context->temp_file_hts_for_lookup[j] != NULL
         && hashtable_search(actual_context->temp_file_hts_for_lookup[j],
-        current_word_str) != nullptr) {
+        current_word_str) != NULL) {
       printf("x");
     } else {
       printf("-");
@@ -432,14 +582,14 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
     char **filenames_in_order, int initial_letters_limit) {
   (void) initial_letters_limit;
   holdall *all_unique_words_ha = holdall_empty();
-  if (all_unique_words_ha == nullptr) {
+  if (all_unique_words_ha == NULL) {
     fprintf(stderr,
         "Error: Failed to allocate memory for holdall in graph mode.\n");
     return;
   }
   hashtable *master_word_registry_ht = hashtable_empty(compare_strings,
       hash_string, 0.75);
-  if (master_word_registry_ht == nullptr) {
+  if (master_word_registry_ht == NULL) {
     fprintf(stderr,
         "Error: Failed to allocate memory for master hashtable in graph mode.\n");
     holdall_dispose(&all_unique_words_ha);
@@ -447,15 +597,15 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
   }
   // Temporary hashtables for each file, for fast lookup during printing
   hashtable **temp_file_hts_for_lookup = calloc(num_files, sizeof(hashtable *));
-  if (temp_file_hts_for_lookup == nullptr) {
+  if (temp_file_hts_for_lookup == NULL) {
     fprintf(stderr,
         "Error: Failed to allocate array for temp lookup HTs in graph mode.\n");
     goto cleanup_graph_main_resources;
   }
-  // Note: calloc initializes to nullptr pointers.
+  // Note: calloc initializes to NULL pointers.
   // Populate master registry and all_unique_words_ha
   for (size_t i = 0; i < num_files; ++i) {
-    if (file_holdalls[i] == nullptr) {
+    if (file_holdalls[i] == NULL) {
       continue;
     }
     hgo_collect_words_context_t collect_ctx = {
@@ -471,10 +621,10 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
   }
   // Populate temporary lookup hashtables for each file
   for (size_t i = 0; i < num_files; ++i) {
-    if (file_holdalls[i] != nullptr && holdall_count(file_holdalls[i]) > 0) {
+    if (file_holdalls[i] != NULL && holdall_count(file_holdalls[i]) > 0) {
       temp_file_hts_for_lookup[i] = hashtable_empty(compare_strings,
           hash_string, 0.75);
-      if (temp_file_hts_for_lookup[i] == nullptr) {
+      if (temp_file_hts_for_lookup[i] == NULL) {
         fprintf(stderr, "Error: Failed to create temp lookup HT for file %s.\n",
             filenames_in_order[i]);
         goto cleanup_graph_all_resources;
@@ -491,9 +641,9 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
         goto cleanup_graph_all_resources;
       }
     }
-    // If file_holdalls[i] is nullptr or empty, temp_file_hts_for_lookup[i]
+    // If file_holdalls[i] is NULL or empty, temp_file_hts_for_lookup[i]
     // remains
-    // nullptr (from calloc)
+    // NULL (from calloc)
   }
 #if defined HOLDALL_EXT && defined WANT_HOLDALL_EXT
   holdall_sort(all_unique_words_ha, compare_strings);
@@ -515,9 +665,9 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
   holdall_apply_context(all_unique_words_ha, &actual_print_context,
       pass_context_identity, print_row_via_fun2);
 cleanup_graph_all_resources:
-  if (temp_file_hts_for_lookup != nullptr) {
+  if (temp_file_hts_for_lookup != NULL) {
     for (size_t i = 0; i < num_files; ++i) {
-      if (temp_file_hts_for_lookup[i] != nullptr) {
+      if (temp_file_hts_for_lookup[i] != NULL) {
         hashtable_dispose(&temp_file_hts_for_lookup[i]);
       }
     }

@@ -14,6 +14,7 @@ int main(int argc, char *argv[]) {
   setlocale(LC_ALL, ""); // Set locale for sorting, as mentioned in help
   bool graph_mode = false;
   int initial_letters_limit = 0;
+  bool punctuation_as_space = false; // Added for -p option
   int opt_args_count = 0; // Number of argv slots taken by options like -g, -i,
                           // VALUE
   // --- Argument Parsing ---
@@ -47,6 +48,10 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "jdis: Option -i requires a value.\n");
         return EXIT_FAILURE;
       }
+    } else if (strcmp(argv[i], "-p") == 0 || strcmp(argv[i],
+        "--punctuation-like-space") == 0) {
+      punctuation_as_space = true;
+      opt_args_count++;
     } else {
       // Assuming first non-option is a filename. Stop option parsing.
       // Or, if options can be intermingled, this logic needs to be more robust.
@@ -80,18 +85,19 @@ int main(int argc, char *argv[]) {
   }
   // --- File Processing ---
   holdall **ht_tab = malloc(sizeof(*ht_tab) * num_actual_files);
-  if (ht_tab == nullptr) {
+  if (ht_tab == NULL) {
     fprintf(stderr, "Failed to allocate memory for hashtable array\n");
     return EXIT_FAILURE;
   }
-  // Initialize all pointers to nullptr for safe disposal in case of early exit
+  // Initialize all pointers to NULL for safe disposal in case of early exit
   for (size_t i = 0; i < num_actual_files; ++i) {
-    ht_tab[i] = nullptr;
+    ht_tab[i] = NULL;
   }
   char **actual_filenames = &argv[first_file_idx];
   for (size_t i = 0; i < num_actual_files; ++i) {
-    ht_tab[i] = get_words(actual_filenames[i], initial_letters_limit);
-    if (ht_tab[i] == nullptr) {
+    ht_tab[i] = get_words(actual_filenames[i], initial_letters_limit,
+        punctuation_as_space);
+    if (ht_tab[i] == NULL) {
       fprintf(stderr, "An Error occurred while processing file: %s\n",
           actual_filenames[i]);
       jdis_dispose_holdall_array(ht_tab, num_actual_files);
