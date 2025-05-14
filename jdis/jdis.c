@@ -54,24 +54,44 @@ hashtable *get_words(const char *filename) {
     fprintf(stderr, "Error : unable to open %s\n", filename);
     return nullptr;
   }
-  struct hashtable *ht_internal
+  // ht_internal is treated as an opaque type for library calls,
+  // but cast to local struct for inspection/manipulation if needed by jdis.c
+  // logic.
+  struct hashtable *ht_internal_struct_ptr
     = (struct hashtable *) hashtable_empty(compare_strings, hash_string, 0.75);
-  if (ht_internal == nullptr) {
+  // Use the opaque pointer for library API calls.
+  hashtable *ht_opaque_ptr = (hashtable *) ht_internal_struct_ptr;
+  if (ht_opaque_ptr == nullptr) {
     fclose(file);
     return nullptr;
   }
   char word[256];
   while (fscanf(file, "%255s", word) == 1) {
-    char *word_copy = strdup(word);
-    if (word_copy == nullptr) {
-      fclose(file);
-      hashtable_dispose((hashtable **) &ht_internal);
-      return nullptr;
+    // Check if the string content of 'word' is already a key in the hashtable.
+    // We use 'word' (the buffer) for searching.
+    // hashtable_search expects a keyref that is comparable by compare_strings.
+    if (hashtable_search(ht_opaque_ptr, word) == nullptr) {
+      // Word not found, so strdup it and add it.
+      char *word_copy = strdup(word);
+      if (word_copy == nullptr) { // strdup failed
+        fclose(file);
+        // Free keys already added to this hashtable *for this file*.
+        jdis_free_hashtable_content(ht_opaque_ptr);
+        hashtable_dispose(&ht_opaque_ptr);
+        return nullptr;
+      }
+      // Add the newly duplicated string to the hashtable.
+      // The valref (void*)1 is just a placeholder.
+      hashtable_add(ht_opaque_ptr, word_copy, (void *) 1);
+    } else {
+      // Word (string content) is already in the hashtable (from a previous
+      // strdup).
+      // Do not strdup again, do not add again. The current word_copy is not
+      // created.
     }
-    hashtable_add((hashtable *) ht_internal, word_copy, (void *) 1);
   }
   fclose(file);
-  return (hashtable *) ht_internal; // Return the opaque pointer
+  return ht_opaque_ptr;
 }
 
 void print_usage(void) {
@@ -161,7 +181,6 @@ void print_help(void) {
 
 //CALCUL DE LA DISTANCE
 float jaccard_distance(hashtable *ht1_opaque, hashtable *ht2_opaque) {
-  // Cast opaque pointers to local struct for manipulation
   struct hashtable *ht1 = (struct hashtable *) ht1_opaque;
   struct hashtable *ht2 = (struct hashtable *) ht2_opaque;
   if (ht1 == nullptr || ht2 == nullptr) {
@@ -169,23 +188,26 @@ float jaccard_distance(hashtable *ht1_opaque, hashtable *ht2_opaque) {
   }
   size_t common = 0;
   size_t total = 0;
-  for (size_t i = 0; i < (ht1->nslots); ++i) {
-    struct cell *curr = ht1->hasharray[i]; // Use local cell definition
+  // Iterate through ht1 using its assumed internal structure
+  for (size_t i = 0; i < ht1->nslots; ++i) {
+    struct cell *curr = ht1->hasharray[i];
     while (curr != nullptr) {
       total += 1;
-      // Pass opaque pointer to hashtable_search
-      if (hashtable_search((hashtable *) ht2, curr->keyref) != nullptr) {
+      // Search for key from ht1 (curr->keyref) in ht2 using library function
+      if (hashtable_search(ht2_opaque, curr->keyref) != nullptr) {
         common += 1;
       }
       curr = curr->next;
     }
   }
+  // Iterate through ht2 using its assumed internal structure to count elements
+  // not in ht1
   for (size_t i = 0; i < ht2->nslots; ++i) {
-    struct cell *curr = ht2->hasharray[i]; // Use local cell definition
+    struct cell *curr = ht2->hasharray[i];
     while (curr != nullptr) {
-      // Pass opaque pointer to hashtable_search
-      if (hashtable_search((hashtable *) ht1, curr->keyref) == nullptr) {
-        total++;
+      // Search for key from ht2 (curr->keyref) in ht1 using library function
+      if (hashtable_search(ht1_opaque, curr->keyref) == nullptr) {
+        total++; // Count elements in ht2 that are not in ht1
       }
       curr = curr->next;
     }
@@ -198,7 +220,6 @@ void jdis_free_hashtable_content(hashtable *ht_opaque) {
   if (ht_opaque == nullptr) {
     return;
   }
-  // Cast opaque pointer to local struct for manipulation
   struct hashtable *ht_internal = (struct hashtable *) ht_opaque;
   for (size_t i = 0; i < ht_internal->nslots; ++i) {
     struct cell *current_cell = ht_internal->hasharray[i];
@@ -215,10 +236,9 @@ void jdis_dispose_hashtable_array(hashtable **htt, size_t count) {
   }
   for (size_t i = 0; i < count; ++i) {
     if (htt[i] != nullptr) {
-      jdis_free_hashtable_content(htt[i]); // Free the keys first
-      hashtable_dispose(&htt[i]);          // Then dispose the hashtable
-                                           // structure
+      jdis_free_hashtable_content(htt[i]);
+      hashtable_dispose(&htt[i]);
     }
   }
-  free(htt); // Finally, free the array of hashtable pointers
+  free(htt);
 }
