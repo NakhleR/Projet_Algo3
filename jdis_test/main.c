@@ -2,20 +2,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <locale.h>
-#include <stdbool.h> // For bool type
-#include <errno.h>   // For errno and strtol error checking
-#include "hashtable.h" // Only for `hashtable` type, not its internal functions
-#include "holdall.h"   // If used directly by main, otherwise can be removed if
-                       // only jdis uses it
-#include "jdis.h"      // Now includes all jdis provided functions like
-                       // get_words, jaccard_distance, and
-                       // jdis_dispose_hashtable_array
-// #include <stddef.h> // Not strictly needed if using NULL
+#include <stdbool.h>
+#include <errno.h>
+#include "hashtable.h"
+#include "holdall.h"
+#include "jdis.h"
 
 #define WORD_LEN_MAX 31
-
-// The function hashtable__tab_dispose is now removed, its logic is in
-// jdis_dispose_hashtable_array.
 
 int main(int argc, char *argv[]) {
   setlocale(LC_ALL, ""); // Set locale for sorting, as mentioned in help
@@ -86,24 +79,22 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
   // --- File Processing ---
-  hashtable **ht_tab = malloc(sizeof(*ht_tab) * num_actual_files);
-  if (ht_tab == NULL) {
+  holdall **ht_tab = malloc(sizeof(*ht_tab) * num_actual_files);
+  if (ht_tab == nullptr) {
     fprintf(stderr, "Failed to allocate memory for hashtable array\n");
     return EXIT_FAILURE;
   }
-  // Initialize all pointers to NULL for safe disposal in case of early exit
+  // Initialize all pointers to nullptr for safe disposal in case of early exit
   for (size_t i = 0; i < num_actual_files; ++i) {
-    ht_tab[i] = NULL;
+    ht_tab[i] = nullptr;
   }
   char **actual_filenames = &argv[first_file_idx];
   for (size_t i = 0; i < num_actual_files; ++i) {
     ht_tab[i] = get_words(actual_filenames[i], initial_letters_limit);
-    if (ht_tab[i] == NULL) {
+    if (ht_tab[i] == nullptr) {
       fprintf(stderr, "An Error occurred while processing file: %s\n",
           actual_filenames[i]);
-      jdis_dispose_hashtable_array(ht_tab, num_actual_files); // Pass full size,
-                                                              // dispose will
-                                                              // handle NULLs
+      jdis_dispose_holdall_array(ht_tab, num_actual_files);
       return EXIT_FAILURE;
     }
   }
@@ -120,6 +111,6 @@ int main(int argc, char *argv[]) {
       }
     }
   }
-  jdis_dispose_hashtable_array(ht_tab, num_actual_files);
+  jdis_dispose_holdall_array(ht_tab, num_actual_files);
   return EXIT_SUCCESS;
 }
