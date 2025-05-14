@@ -311,22 +311,10 @@ void print_help(void) {
   printf("  --usage\n");
   printf("        Print a short usage message and exit.\n");
   printf("\n");
-  printf("  --version\n");
-  printf("        Print version information.\n");
-  printf("\n");
-  printf("Processing\n");
-  printf("  -h    Same as --words-processing=hash-table.\n");
-  printf(
-      "        Process the words according to the data structure specified by TYPE. The\n");
-  printf(
-      "        available values for TYPE are self explanatory: 'avl-binary-tree' and\n");
-  printf("        'hash-table'. Default is 'hash-table'.\n");
-  printf("\n");
   printf("Input Control\n");
   printf("  -i VALUE, --initial=VALUE\n");
   printf(
-      "        Set the maximal number of significant initial letters for words to\n");
-  printf("        VALUE. 0 means without limitation. Default is 0.\n");
+      "        Process words considering only the first VALUE significant initial letters (0 means no limit). Default is 0.\n");
   printf("\n");
   printf("  -p, --punctuation-like-space\n");
   printf(
@@ -353,19 +341,8 @@ void print_help(void) {
       "        Set 'LC_ALL=C' or 'LC_COLLATE=C' to get the traditional sort order that\n");
   printf("        uses native byte values.\n");
   printf("\n");
-  printf("File Selection\n");
-  printf("  -P LIST, --path=LIST\n");
   printf(
-      "        Specify a list of directories in which to search for any FILE if it is\n");
-  printf(
-      "        not present in the current directory. In LIST, directory names are\n");
-  printf(
-      "        separated by colons. The order in which directories are listed is the\n");
-  printf("        order followed by jdis in its search.\n");
-  printf("\n");
-  printf(
-      "White-space and punctuation characters conform to the standard. At most 64 FILEs\n");
-  printf("are supported.\n");
+      "White-space and punctuation characters conform to the standard.\n");
 }
 
 //CALCUL DE LA DISTANCE

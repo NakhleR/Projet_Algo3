@@ -53,9 +53,13 @@ int main(int argc, char *argv[]) {
       punctuation_as_space = true;
       opt_args_count++;
     } else {
+      // Check if it looks like an option but is unrecognized
+      if (argv[i][0] == '-') {
+        fprintf(stderr, "jdis: unrecognized option '%s'\n", argv[i]);
+        fprintf(stderr, "Try 'jdis --help' for more information.\n");
+        return EXIT_FAILURE;
+      }
       // Assuming first non-option is a filename. Stop option parsing.
-      // Or, if options can be intermingled, this logic needs to be more robust.
-      // For simplicity, assume options come before filenames.
       break;
     }
   }
@@ -66,19 +70,22 @@ int main(int argc, char *argv[]) {
   if (argc >= first_file_idx) {
     num_actual_files = (size_t) (argc - first_file_idx);
   }
-  if (num_actual_files < 2 && !graph_mode) { // Jaccard needs at least 2 files
+  if (num_actual_files < 2 && graph_mode == false) { // Jaccard needs at least 2
+                                                     // files
     fprintf(stderr,
         "jdis: At least two files are required for Jaccard distance.\n");
     fprintf(stderr, "Try 'jdis --help' for more information.\n");
     return EXIT_FAILURE;
   }
-  if (num_actual_files < 1 && graph_mode) { // Graph mode needs at least 1 file
+  if (num_actual_files < 1 && graph_mode == true) { // Graph mode needs at least
+                                                    // 1 file
     fprintf(stderr, "jdis: At least one file is required for graph mode.\n");
     fprintf(stderr, "Try 'jdis --help' for more information.\n");
     return EXIT_FAILURE;
   }
-  if (num_actual_files == 0 && !graph_mode) { // General case if previous checks
-                                              // don't catch
+  if (num_actual_files == 0 && graph_mode == false) { // General case if
+                                                      // previous checks
+    // don't catch
     fprintf(stderr, "jdis: Missing operands (filenames).\n");
     fprintf(stderr, "Try 'jdis --help' for more information.\n");
     return EXIT_FAILURE;
@@ -105,7 +112,7 @@ int main(int argc, char *argv[]) {
     }
   }
   // --- Output Generation ---
-  if (graph_mode) {
+  if (graph_mode == true) {
     handle_graph_output(ht_tab, num_actual_files, actual_filenames,
         initial_letters_limit);
   } else {
