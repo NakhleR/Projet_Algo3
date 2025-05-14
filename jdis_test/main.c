@@ -9,6 +9,7 @@
 #include "jdis.h"
 
 #define WORD_LEN_MAX 31
+#define MAX_FILES_SUPPORTED 64 // Define the maximum number of files
 
 int main(int argc, char *argv[]) {
   setlocale(LC_ALL, ""); // Set locale for sorting, as mentioned in help
@@ -82,6 +83,13 @@ int main(int argc, char *argv[]) {
   size_t num_actual_files = 0;
   if (argc >= first_file_idx) {
     num_actual_files = (size_t) (argc - first_file_idx);
+  }
+  // Check for maximum number of files supported
+  if (num_actual_files > MAX_FILES_SUPPORTED) {
+    fprintf(stderr, "jdis: Too many files. At most %d files are supported.\n",
+        MAX_FILES_SUPPORTED);
+    fprintf(stderr, "Try 'jdis --help' for more information.\n");
+    return EXIT_FAILURE;
   }
   if (num_actual_files < 2 && graph_mode == false) { // Jaccard needs at least 2
                                                      // files
