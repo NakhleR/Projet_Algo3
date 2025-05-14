@@ -26,30 +26,28 @@ int main(int argc, char *argv[]) {
     return EXIT_SUCCESS;
   }
   if (argc < 3) {
-    printf("jdis: Missing operand.\n");
-    printf("Try 'jdis --help' for more information.\n");
+    fprintf(stderr, "jdis: Missing operand.\n");
+    fprintf(stderr, "Try 'jdis --help' for more information.\n");
     return EXIT_FAILURE;
   }
   size_t filenumb = (size_t) argc - 1;
   hashtable **ht_tab = malloc(sizeof(*ht_tab) * filenumb);
   if (ht_tab == NULL) { // Reverted to NULL
-    perror("Failed to allocate memory for hashtable array");
+    fprintf(stderr, "Failed to allocate memory for hashtable array");
     return EXIT_FAILURE;
   }
   for (size_t i = 0; i < filenumb; ++i) {
     ht_tab[i] = get_words(argv[i + 1]);
     if (ht_tab[i] == NULL) { // Reverted to NULL
-      printf("An Error occurred while processing file: %s\n", argv[i + 1]);
-      // Dispose of already allocated hashtables and the array itself
-      jdis_dispose_hashtable_array(ht_tab, i); // Pass 'i' as count of
-                                               // initialized tables
+      fprintf(stderr, "An Error occurred while processing file: %s\n",
+          argv[i + 1]);
+      jdis_dispose_hashtable_array(ht_tab, i);
       return EXIT_FAILURE;
     }
   }
   for (size_t j = 1; j < filenumb; ++j) {
     for (size_t k = j + 1; k <= filenumb; ++k) {
       float d = jaccard_distance(ht_tab[j - 1], ht_tab[k - 1]);
-      printf("(%ld::%ld)\n", j, k);
       printf("%4f\t%s\t%s\n", d, argv[j], argv[k]);
     }
   }
