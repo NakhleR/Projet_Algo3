@@ -67,7 +67,7 @@ size_t holdall_count(holdall *ha) {
 }
 
 int holdall_apply(holdall *ha,
-    int (*fun)(void *)) {
+    int (*fun) (void *)) {
   for (const choldall *p = ha->head; p != nullptr; p = p->next) {
     int r = fun(p->ref);
     if (r != 0) {
@@ -78,8 +78,8 @@ int holdall_apply(holdall *ha,
 }
 
 int holdall_apply_context(holdall *ha,
-    void *context, void *(*fun1)(void *context, void *ptr),
-    int (*fun2)(void *ptr, void *resultfun1)) {
+    void *context, void *(*fun1) (void *context, void *ptr),
+    int (*fun2) (void *ptr, void *resultfun1)) {
   for (const choldall *p = ha->head; p != nullptr; p = p->next) {
     int r = fun2(p->ref, fun1(context, p->ref));
     if (r != 0) {
@@ -90,8 +90,8 @@ int holdall_apply_context(holdall *ha,
 }
 
 int holdall_apply_context2(holdall *ha,
-    void *context1, void *(*fun1)(void *context1, void *ptr),
-    void *context2, int (*fun2)(void *context2, void *ptr, void *resultfun1)) {
+    void *context1, void *(*fun1) (void *context1, void *ptr),
+    void *context2, int (*fun2) (void *context2, void *ptr, void *resultfun1)) {
   for (const choldall *p = ha->head; p != nullptr; p = p->next) {
     int r = fun2(context2, p->ref, fun1(context1, p->ref));
     if (r != 0) {
@@ -103,8 +103,33 @@ int holdall_apply_context2(holdall *ha,
 
 #if defined HOLDALL_EXT && defined WANT_HOLDALL_EXT
 
-/*
- *  IMPLANTATION DE L'EXTENSION OPTIONNELLE
- */
+void **holdall_to_array(holdall *ha) {
+  if (ha == nullptr || ha->count == 0) {
+    return nullptr;
+  }
+  void **array = (void **) malloc(ha->count * sizeof(void *));
+  if (array == nullptr) {
+    return nullptr;
+  }
+  choldall *p = ha->head;
+  size_t i = 0;
+  while (p != nullptr && i < ha->count) {
+    array[i] = p->ref;
+    p = p->next;
+    i++;
+  }
+  return array;
+}
+
+void holdall_sort(holdall *ha, int (*cmp) (const void *, const void *)) {
+  void **array = holdall_to_array(ha);
+  qsort(array, ha->count, sizeof(void *), cmp);
+  choldall *p = ha->head;
+  for (size_t i = 0; i < ha->count; i++) {
+    p->ref = array[i];
+    p = p->next;
+  }
+  free(array);
+}
 
 #endif
