@@ -1,5 +1,6 @@
 #include "jdis.h"
 #include "../hashtable/hashtable.h"
+#include "../holdall/holdall.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,7 +49,7 @@ size_t hash_string(const void *key) {
 //return 0;
 //}
 
-hashtable *get_words(const char *filename) {
+hashtable *get_words(const char *filename, int initial_letters_limit) {
   FILE *file = fopen(filename, "r");
   if (file == nullptr) {
     fprintf(stderr, "Error : unable to open %s\n", filename);
@@ -65,15 +66,22 @@ hashtable *get_words(const char *filename) {
     fclose(file);
     return nullptr;
   }
-  char word[256];
-  while (fscanf(file, "%255s", word) == 1) {
-    // Check if the string content of 'word' is already a key in the hashtable.
-    // We use 'word' (the buffer) for searching.
-    // hashtable_search expects a keyref that is comparable by compare_strings.
-    if (hashtable_search(ht_opaque_ptr, word) == nullptr) {
-      // Word not found, so strdup it and add it.
-      char *word_copy = strdup(word);
-      if (word_copy == nullptr) { // strdup failed
+  char word_buffer[256]; // Buffer to read full word
+  char processed_word_buffer[256]; // Buffer for potentially truncated word
+  while (fscanf(file, "%254s", word_buffer) == 1) { // Read into word_buffer
+    const char *word_to_process;
+    if (initial_letters_limit > 0
+        && (int) strlen(word_buffer) > initial_letters_limit) {
+      strncpy(processed_word_buffer, word_buffer,
+          (size_t) initial_letters_limit);
+      processed_word_buffer[initial_letters_limit] = '\0';
+      word_to_process = processed_word_buffer;
+    } else {
+      word_to_process = word_buffer;
+    }
+    if (hashtable_search(ht_opaque_ptr, word_to_process) == nullptr) {
+      char *word_copy = strdup(word_to_process);
+      if (word_copy == nullptr) {
         fclose(file);
         // Free keys already added to this hashtable *for this file*.
         jdis_free_hashtable_content(ht_opaque_ptr);
@@ -241,4 +249,109 @@ void jdis_dispose_hashtable_array(hashtable **htt, size_t count) {
     }
   }
   free(htt);
+}
+
+// --- Static helper functions for handle_graph_output ---
+
+typedef struct {
+  hashtable **file_hashtables;
+  size_t num_files;
+  char **filenames_in_order;
+} graph_print_context_t;
+
+// fun1 for holdall_apply_context: passes context through, word_ref is what fun2
+// processes.
+static void *pass_context_identity(void *context, void *word_ref_ptr) {
+  (void) word_ref_ptr; // word_ref (ptr) is what fun2 will use, this fun1 passes
+                       // context.
+  return context;
+}
+
+// fun2 for holdall_apply_context: prints a row for the given word.
+static int print_row_via_fun2(void *word_ref, void *context_from_fun1) {
+  const char *current_word_str = (const char *) word_ref;
+  graph_print_context_t *actual_context
+    = (graph_print_context_t *) context_from_fun1;
+  printf("%s", current_word_str);
+  for (size_t j = 0; j < actual_context->num_files; ++j) {
+    printf("\t");
+    if (actual_context->file_hashtables[j] != nullptr
+        && hashtable_search(actual_context->file_hashtables[j],
+        current_word_str) != nullptr) {
+      printf("x");
+    } else {
+      printf("-");
+    }
+  }
+  printf("\n");
+  return 0; // Continue apply
+}
+
+// --- Main function for graph output ---
+void handle_graph_output(hashtable **file_hashtables, size_t num_files,
+    char **filenames_in_order, int initial_letters_limit) {
+  (void) initial_letters_limit; // Suppress unused parameter warning for now.
+  holdall *all_unique_words_ha = holdall_empty();
+  if (all_unique_words_ha == nullptr) {
+    fprintf(stderr,
+        "Error: Failed to allocate memory for holdall in graph mode.\n");
+    return;
+  }
+  hashtable *master_word_registry_ht = hashtable_empty(compare_strings,
+      hash_string, 0.75);
+  if (master_word_registry_ht == nullptr) {
+    fprintf(stderr,
+        "Error: Failed to allocate memory for master hashtable in graph mode.\n");
+    holdall_dispose(&all_unique_words_ha);
+    return;
+  }
+  for (size_t i = 0; i < num_files; ++i) {
+    if (file_hashtables[i] == nullptr) {
+      continue;
+    }
+    struct hashtable *current_file_ht_struct
+      = (struct hashtable *) file_hashtables[i];
+    for (size_t slot = 0; slot < current_file_ht_struct->nslots; ++slot) {
+      struct cell *current_cell = current_file_ht_struct->hasharray[slot];
+      while (current_cell != nullptr) {
+        const char *word_key = (const char *) current_cell->keyref;
+        if (hashtable_search(master_word_registry_ht, word_key) == nullptr) {
+          if (hashtable_add(master_word_registry_ht, (void *) word_key,
+              (void *) 1) == nullptr) {
+            fprintf(stderr,
+                "Error: Failed to add word to master registry in graph mode.\n");
+            goto cleanup_graph_resources;
+          }
+          if (holdall_put(all_unique_words_ha, (void *) word_key) != 0) {
+            fprintf(stderr,
+                "Error: Failed to put word into holdall in graph mode.\n");
+            goto cleanup_graph_resources;
+          }
+        }
+        current_cell = current_cell->next;
+      }
+    }
+  }
+#if defined HOLDALL_EXT && defined WANT_HOLDALL_EXT
+  holdall_sort(all_unique_words_ha, compare_strings);
+#else
+  fprintf(stderr,
+      "Warning: holdall_sort not available (WANT_HOLDALL_EXT not defined during compilation). Graph output will not be sorted by word.\n");
+#endif
+  printf("\t");
+  for (size_t i = 0; i < num_files; ++i) {
+    printf("%s", filenames_in_order[i]);
+    if (i < num_files - 1) {
+      printf("\t");
+    }
+  }
+  printf("\n");
+  graph_print_context_t actual_print_context = {
+    file_hashtables, num_files, filenames_in_order
+  };
+  holdall_apply_context(all_unique_words_ha, &actual_print_context,
+      pass_context_identity, print_row_via_fun2);
+cleanup_graph_resources:
+  holdall_dispose(&all_unique_words_ha);
+  hashtable_dispose(&master_word_registry_ht);
 }

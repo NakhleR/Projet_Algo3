@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <locale.h>
+#include <stdbool.h> // For bool type
+#include <errno.h>   // For errno and strtol error checking
 #include "hashtable.h" // Only for `hashtable` type, not its internal functions
 #include "holdall.h"   // If used directly by main, otherwise can be removed if
                        // only jdis uses it
@@ -16,41 +18,108 @@
 // jdis_dispose_hashtable_array.
 
 int main(int argc, char *argv[]) {
-  if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1],
-      "-?") == 0)) {
-    print_help();
-    return EXIT_SUCCESS;
+  setlocale(LC_ALL, ""); // Set locale for sorting, as mentioned in help
+  bool graph_mode = false;
+  int initial_letters_limit = 0;
+  int opt_args_count = 0; // Number of argv slots taken by options like -g, -i,
+                          // VALUE
+  // --- Argument Parsing ---
+  // Start checking from argv[1]
+  for (int i = 1; i < argc; ++i) {
+    if (strcmp(argv[i], "-g") == 0) {
+      graph_mode = true;
+      opt_args_count++;
+    } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-?") == 0) {
+      print_help();
+      return EXIT_SUCCESS;
+    } else if (strcmp(argv[i], "--usage") == 0) {
+      print_usage();
+      return EXIT_SUCCESS;
+    } else if (strcmp(argv[i], "-i") == 0) {
+      opt_args_count++; // for -i itself
+      if (i + 1 < argc) {
+        char *endptr;
+        long val = strtol(argv[i + 1], &endptr, 10);
+        if (endptr == argv[i + 1] || *endptr != '\0' || errno == ERANGE
+            || val < 0) {
+          fprintf(stderr,
+              "jdis: Invalid value for -i: '%s'. Must be a non-negative integer.\n",
+              argv[i + 1]);
+          return EXIT_FAILURE;
+        }
+        initial_letters_limit = (int) val;
+        i++; // Consume the VALUE argument
+        opt_args_count++; // for VALUE
+      } else {
+        fprintf(stderr, "jdis: Option -i requires a value.\n");
+        return EXIT_FAILURE;
+      }
+    } else {
+      // Assuming first non-option is a filename. Stop option parsing.
+      // Or, if options can be intermingled, this logic needs to be more robust.
+      // For simplicity, assume options come before filenames.
+      break;
+    }
   }
-  if (argc == 2 && strcmp(argv[1], "--usage") == 0) {
-    print_usage();
-    return EXIT_SUCCESS;
+  int first_file_idx = 1 + opt_args_count;
+  // Calculate num_actual_files. It must be non-negative.
+  // If argc < first_file_idx, then there are no file arguments.
+  size_t num_actual_files = 0;
+  if (argc >= first_file_idx) {
+    num_actual_files = (size_t) (argc - first_file_idx);
   }
-  if (argc < 3) {
-    fprintf(stderr, "jdis: Missing operand.\n");
+  if (num_actual_files < 2 && !graph_mode) { // Jaccard needs at least 2 files
+    fprintf(stderr,
+        "jdis: At least two files are required for Jaccard distance.\n");
     fprintf(stderr, "Try 'jdis --help' for more information.\n");
     return EXIT_FAILURE;
   }
-  size_t filenumb = (size_t) argc - 1;
-  hashtable **ht_tab = malloc(sizeof(*ht_tab) * filenumb);
-  if (ht_tab == NULL) { // Reverted to NULL
-    fprintf(stderr, "Failed to allocate memory for hashtable array");
+  if (num_actual_files < 1 && graph_mode) { // Graph mode needs at least 1 file
+    fprintf(stderr, "jdis: At least one file is required for graph mode.\n");
+    fprintf(stderr, "Try 'jdis --help' for more information.\n");
     return EXIT_FAILURE;
   }
-  for (size_t i = 0; i < filenumb; ++i) {
-    ht_tab[i] = get_words(argv[i + 1]);
-    if (ht_tab[i] == NULL) { // Reverted to NULL
+  if (num_actual_files == 0 && !graph_mode) { // General case if previous checks
+                                              // don't catch
+    fprintf(stderr, "jdis: Missing operands (filenames).\n");
+    fprintf(stderr, "Try 'jdis --help' for more information.\n");
+    return EXIT_FAILURE;
+  }
+  // --- File Processing ---
+  hashtable **ht_tab = malloc(sizeof(*ht_tab) * num_actual_files);
+  if (ht_tab == NULL) {
+    fprintf(stderr, "Failed to allocate memory for hashtable array\n");
+    return EXIT_FAILURE;
+  }
+  // Initialize all pointers to NULL for safe disposal in case of early exit
+  for (size_t i = 0; i < num_actual_files; ++i) {
+    ht_tab[i] = NULL;
+  }
+  char **actual_filenames = &argv[first_file_idx];
+  for (size_t i = 0; i < num_actual_files; ++i) {
+    ht_tab[i] = get_words(actual_filenames[i], initial_letters_limit);
+    if (ht_tab[i] == NULL) {
       fprintf(stderr, "An Error occurred while processing file: %s\n",
-          argv[i + 1]);
-      jdis_dispose_hashtable_array(ht_tab, i);
+          actual_filenames[i]);
+      jdis_dispose_hashtable_array(ht_tab, num_actual_files); // Pass full size,
+                                                              // dispose will
+                                                              // handle NULLs
       return EXIT_FAILURE;
     }
   }
-  for (size_t j = 1; j < filenumb; ++j) {
-    for (size_t k = j + 1; k <= filenumb; ++k) {
-      float d = jaccard_distance(ht_tab[j - 1], ht_tab[k - 1]);
-      printf("%4f\t%s\t%s\n", d, argv[j], argv[k]);
+  // --- Output Generation ---
+  if (graph_mode) {
+    handle_graph_output(ht_tab, num_actual_files, actual_filenames,
+        initial_letters_limit);
+  } else {
+    // Jaccard distance calculation (requires at least 2 files, checked above)
+    for (size_t j = 0; j < num_actual_files; ++j) {
+      for (size_t k = j + 1; k < num_actual_files; ++k) {
+        float d = jaccard_distance(ht_tab[j], ht_tab[k]);
+        printf("%.4f\t%s\t%s\n", d, actual_filenames[j], actual_filenames[k]);
+      }
     }
   }
-  jdis_dispose_hashtable_array(ht_tab, filenumb);
+  jdis_dispose_hashtable_array(ht_tab, num_actual_files);
   return EXIT_SUCCESS;
 }

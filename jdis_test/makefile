@@ -6,7 +6,7 @@ CFLAGS = -std=c2x \
   -Wall -Wconversion -Werror -Wextra -Wpedantic -Wwrite-strings \
   -O2 \
   -I$(jdis_dir) -I$(hashtable_dir) -I$(holdall_dir) \
-  -DHASHTABLE_STATS=0
+  -DHASHTABLE_STATS=0 -DWANT_HOLDALL_EXT -DHOLDALL_EXT
 vpath %.c $(jdis_dir) $(hashtable_dir) $(holdall_dir)
 vpath %.h $(jdis_dir) $(hashtable_dir) $(holdall_dir)
 objects = main.o jdis.o hashtable.o holdall.o
