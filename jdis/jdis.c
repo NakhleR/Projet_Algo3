@@ -7,19 +7,27 @@
 #include <ctype.h>
 #include <stdbool.h>
 
-// Fonction pour comparer deux chaînes (pour qsort via holdall_sort)
+//  compare_strings_for_qsort : fonction de comparaison pour qsort (utilisée via
+//    holdall_sort). Compare deux chaînes de caractères pointées indirectement
+//    par a et b (qui sont des pointeurs vers des char*).
+//    Utilise strcoll pour une comparaison sensible à la locale.
 int compare_strings_for_qsort(const void *a, const void *b) {
   const char *s1 = *(const char **) a;
   const char *s2 = *(const char **) b;
   return strcoll(s1, s2);
 }
 
-// Fonction pour comparer deux chaînes (pour hashtable)
+//  compare_strings_for_hashtable : fonction de comparaison pour la table de
+//    hachage. Compare deux chaînes de caractères pointées par a et b.
+//    Utilise strcoll pour une comparaison sensible à la locale.
 int compare_strings_for_hashtable(const void *a, const void *b) {
   return strcoll((const char *) a, (const char *) b);
 }
 
-// Fonction de hachage (djb2)
+//  hash_string : fonction de hachage pour une chaîne de caractères (algorithme
+//    djb2).
+//    Prend une clé (un pointeur vers une chaîne de caractères) et renvoie sa
+//    valeur de hachage de type size_t.
 size_t hash_string(const void *key) {
   const char *str = (const char *) key;
   size_t hash = 5381;
@@ -30,13 +38,15 @@ size_t hash_string(const void *key) {
   return hash;
 }
 
-// --- Static helper function for freeing words in holdall ---
+//  free_holdall_word : fonction utilitaire pour holdall_apply. Libère la
+// mémoire
+//    allouée pour une chaîne de caractères (mot) pointée par word_ref.
+//    Renvoie toujours 0 pour indiquer à holdall_apply de continuer.
 static int free_holdall_word(void *word_ref) {
   free(word_ref);
-  return 0; // Continue apply
+  return 0;
 }
 
-// Function to free strdup'd keys stored in a holdall
 void jdis_free_holdall_content(holdall *ha) {
   if (ha == NULL) {
     return;
@@ -44,7 +54,11 @@ void jdis_free_holdall_content(holdall *ha) {
   holdall_apply(ha, free_holdall_word);
 }
 
-// --- Static helper function for processing and adding a word ---
+//  process_and_add_words : traite un mot, le tronque si nécessaire selon
+//    initial_letters_limit, et l'ajoute au fourretout words_ha s'il n'est
+//    pas déjà présent dans la table de hachage temp_uniqueness_ht (assurant
+//    l'unicité). Met à jour temp_uniqueness_ht.
+//    Renvoie 0 en cas de succès, -1 en cas d'erreur d'allocation.
 static int process_and_add_words(
     const char *word_to_process_original,
     int initial_letters_limit,
@@ -71,7 +85,7 @@ static int process_and_add_words(
     if (word_copy == NULL) {
       fprintf(stderr, "Error: strdup failed for word '%s' in file '%s'\n",
           word_to_add, filename_for_log);
-      return -1; // Error
+      return -1;
     }
     if (hashtable_add(temp_uniqueness_ht, word_copy, (void *) 1) == NULL) {
       fprintf(stderr,
@@ -282,38 +296,53 @@ void print_help(void) {
       "White-space and punctuation characters conform to the standard.\n");
 }
 
-//CALCUL DE LA DISTANCE
-
-// --- Static helper functions for jaccard_distance ---
-
-// For populating the temporary hashtable from ha1
+//  fun1_populate_temp_ht : fonction pour holdall_apply_context. Ajoute word_ref
+//    à la table de hachage pointée par context_temp_ht.
+//    Renvoie le résultat de hashtable_add (un pointeur vers la valeur associée
+//    à la clé, ou NULL en cas d'erreur ou si la clé existait déjà et que la
+//    table ne permet pas les doublons, bien qu'ici les mots soient uniques
+//    par construction de ha1).
 static void *fun1_populate_temp_ht(void *context_temp_ht, void *word_ref) {
   hashtable *temp_ht = (hashtable *) context_temp_ht;
-  // Words in ha1 (from get_words) are unique.
-  // So, if hashtable_add returns NULL, it's an OOM for a new key.
   return hashtable_add(temp_ht, word_ref, (void *) 1);
 }
 
+//  fun2_check_populate_error : fonction pour holdall_apply_context. Vérifie si
+//    l'opération d'ajout (dont le résultat est add_result_from_fun1) dans la
+//    table de hachage a échoué.
+//    Renvoie 1 si add_result_from_fun1 est NULL (erreur), sinon 0.
+//    word_ref n'est pas utilisé.
 static int fun2_check_populate_error(void *word_ref,
     void *add_result_from_fun1) {
-  (void) word_ref; // word_ref is unused in this checker
-  // If add_result_from_fun1 is NULL (error from fun1_populate_temp_ht),
-  // return
-  // 1 to stop.
+  (void) word_ref;
   return (add_result_from_fun1 == NULL) ? 1 : 0;
 }
 
-// For counting common elements (these can remain as they are efficient)
+//  jd_count_common_context_t : structure de contexte utilisée pour compter les
+//    éléments communs lors du calcul de la distance de Jaccard.
+//    Membres :
+//      ht_to_search : pointeur vers la table de hachage (contenant les mots
+//                     d'un des ensembles) dans laquelle rechercher.
+//      common_count : pointeur vers un compteur (size_t) à incrémenter pour
+//                     chaque mot commun trouvé.
 typedef struct {
   hashtable *ht_to_search;
   size_t *common_count;
-} jd_count_common_context_t; // This struct is quite minimal
+} jd_count_common_context_t;
 
+//  jd_count_common_pass_ctx : fonction pour holdall_apply_context (en tant que
+//    fun1). Passe simplement le contexte 'ctx' à la fonction fun2.
+//    'ref' n'est pas utilisé.
 static void *jd_count_common_pass_ctx(void *ctx, void *ref) {
   (void) ref;
   return ctx;
 }
 
+//  jd_count_common_check_word : fonction pour holdall_apply_context (en tant
+// que
+//    fun2). Recherche word_ref_from_ha dans la table de hachage
+//    (context->ht_to_search) et incrémente context->common_count si trouvé.
+//    Renvoie toujours 0 pour continuer le parcours.
 static int jd_count_common_check_word(void *word_ref_from_ha,
     void *ctx_from_fun1) {
   jd_count_common_context_t *context
@@ -321,16 +350,11 @@ static int jd_count_common_check_word(void *word_ref_from_ha,
   if (hashtable_search(context->ht_to_search, word_ref_from_ha) != NULL) {
     (*context->common_count)++;
   }
-  return 0; // Continue apply
+  return 0;
 }
 
 float jaccard_distance(holdall *ha1, holdall *ha2) {
   if (ha1 == NULL || ha2 == NULL) {
-    // Consider if one is NULL and other is not. If both non-NULL but one
-    // is
-    // empty,
-    // current logic handles it. If passed NULL explicitly, 1.0f is
-    // reasonable.
     return 1.0f;
   }
   size_t count1 = holdall_count(ha1);
@@ -338,23 +362,16 @@ float jaccard_distance(holdall *ha1, holdall *ha2) {
   if (count1 == 0 && count2 == 0) {
     return 0.0f;
   }
-  // If one is empty and the other is not, common is 0, union_size is count of
-  // non-empty.
-  // Distance = 1.0 - (0 / count_non_empty) = 1.0. Correct.
   hashtable *temp_ht_from_ha1 = hashtable_empty(compare_strings_for_hashtable,
       hash_string,
       0.75);
   if (temp_ht_from_ha1 == NULL) {
     fprintf(stderr,
         "Error: Failed to create temp hashtable for Jaccard distance.\n");
-    return 1.0f; // Cannot compute accurately
+    return 1.0f;
   }
-  // Populate temp_ht_from_ha1 using ha1
-  // The context passed to holdall_apply_context is temp_ht_from_ha1 itself.
   if (holdall_apply_context(ha1, temp_ht_from_ha1, fun1_populate_temp_ht,
       fun2_check_populate_error) != 0) {
-    // fun2_check_populate_error returned non-zero, meaning an error during
-    // hashtable_add
     hashtable_dispose(&temp_ht_from_ha1);
     fprintf(stderr,
         "Error: Failed to populate temp hashtable from ha1 for Jaccard distance.\n");
@@ -364,21 +381,13 @@ float jaccard_distance(holdall *ha1, holdall *ha2) {
   jd_count_common_context_t common_ctx = {
     temp_ht_from_ha1, &common
   };
-  // Iterate through ha2 to count common words
   holdall_apply_context(ha2, &common_ctx, jd_count_common_pass_ctx,
       jd_count_common_check_word);
-  // holdall_apply_context for counting common doesn't signal errors in its
-  // return for this setup,
-  // as jd_count_common_check_word always returns 0.
   hashtable_dispose(&temp_ht_from_ha1);
   size_t union_size = count1 + count2 - common;
   return (union_size
     == 0) ? 0.0f : 1.0f - ((float) common / (float) union_size);
 }
-
-// Function to free keys before disposing the hashtable - NOW FOR HOLDALL
-// void jdis_free_hashtable_content(hashtable *ht_opaque) { // OLD name
-// Already defined above as jdis_free_holdall_content
 
 void jdis_dispose_holdall_array(holdall **ha_array, size_t count) {
   if (ha_array == NULL) {
@@ -393,86 +402,124 @@ void jdis_dispose_holdall_array(holdall **ha_array, size_t count) {
   free(ha_array);
 }
 
-// --- Static helper functions for handle_graph_output ---
-
-// Context for populating temporary hashtables from holdalls
+//  hgo_populate_temp_ht_context_t : structure de contexte utilisée pour peupler
+//    les tables de hachage temporaires pour chaque fichier dans le mode
+//    graphique.
+//    Membres :
+//      ht : pointeur vers la table de hachage à peupler.
+//      error_flag : indicateur d'erreur (int), mis à 1 en cas d'échec
+//                   d'allocation.
 typedef struct {
   hashtable *ht;
   int error_flag;
 } hgo_populate_temp_ht_context_t;
 
+//  hgo_populate_temp_ht_pass_ctx : fonction pour holdall_apply_context (en tant
+//    que fun1). Passe simplement le contexte 'ctx' à la fonction fun2.
+//    'ref' n'est pas utilisé.
 static void *hgo_populate_temp_ht_pass_ctx(void *ctx, void *ref) {
   (void) ref;
   return ctx;
 }
 
+//  hgo_populate_temp_ht_add_word : fonction pour holdall_apply_context (en tant
+//    que fun2). Ajoute word_ref à la table de hachage context->ht.
+//    Met context->error_flag à 1 et renvoie 1 en cas d'échec d'allocation
+//    pour une nouvelle clé (non déjà présente). Sinon, renvoie 0.
 static int hgo_populate_temp_ht_add_word(void *word_ref, void *ctx_from_fun1) {
   hgo_populate_temp_ht_context_t *context
     = (hgo_populate_temp_ht_context_t *) ctx_from_fun1;
-  // Assuming word_ref are unique char* from get_words, and ht is fresh.
   if (hashtable_add(context->ht, word_ref, (void *) 1) == NULL) {
     void *search_result = hashtable_search(context->ht, word_ref);
-    if (search_result == NULL) { // If add failed for a truly new key (OOM)
+    if (search_result == NULL) {
       context->error_flag = 1;
-      return 1; // Stop apply
+      return 1;
     }
   }
-  return 0; // Continue apply
+  return 0;
 }
 
-// Context for collecting all unique words into master registry and master
-// holdall
+//  hgo_collect_words_context_t : structure de contexte pour collecter tous les
+//    mots uniques de tous les fichiers dans une table de hachage principale
+//    (master_registry_ht) et un fourretout principal (all_unique_words_ha)
+//    pour le mode graphique.
+//    Membres :
+//      master_registry_ht : pointeur vers la table de hachage principale
+//                           enregistrant tous les mots uniques.
+//      all_unique_words_ha : pointeur vers le fourretout principal stockant
+//                            des pointeurs vers tous les mots uniques (pour
+// tri).
+//      error_flag : indicateur d'erreur (int), mis à 1 en cas d'échec
+//                   d'allocation.
 typedef struct {
   hashtable *master_registry_ht;
   holdall *all_unique_words_ha;
   int error_flag;
 } hgo_collect_words_context_t;
 
+//  hgo_collect_words_pass_ctx : fonction pour holdall_apply_context (en tant
+//    que fun1). Passe simplement le contexte 'ctx' à la fonction fun2.
+//    'ref' n'est pas utilisé.
 static void *hgo_collect_words_pass_ctx(void *ctx, void *ref) {
   (void) ref;
   return ctx;
 }
 
+//  hgo_collect_words_add_master : fonction pour holdall_apply_context (en tant
+//    que fun2). Si word_key_ref n'est pas dans context->master_registry_ht,
+//    l'ajoute à la fois à context->master_registry_ht et à
+//    context->all_unique_words_ha.
+//    Met context->error_flag à 1 et renvoie 1 en cas d'échec d'allocation.
+//    Sinon, renvoie 0.
 static int hgo_collect_words_add_master(void *word_key_ref,
     void *ctx_from_fun1) {
   hgo_collect_words_context_t *ctx
     = (hgo_collect_words_context_t *) ctx_from_fun1;
   const char *word_key = (const char *) word_key_ref;
   if (hashtable_search(ctx->master_registry_ht, word_key) == NULL) {
-    // word_key points to string owned by one of the file_holdalls.
-    // Master registry and holdall will store this pointer, not a new copy.
     if (hashtable_add(ctx->master_registry_ht, (void *) word_key,
         (void *) 1) == NULL) {
-      // OOM adding to master registry
       ctx->error_flag = 1;
       return 1;
     }
     if (holdall_put(ctx->all_unique_words_ha, (void *) word_key) != 0) {
-      // OOM adding to master holdall
       ctx->error_flag = 1;
       return 1;
     }
   }
-  return 0; // Continue
+  return 0;
 }
 
-// Renamed graph_print_context for clarity within handle_graph_output
+//  hgo_graph_print_row_context_t : structure de contexte pour l'impression des
+//    lignes de la sortie graphique. Contient les tables de hachage temporaires
+//    de chaque fichier pour une recherche rapide, le nombre de fichiers, et les
+//    noms des fichiers dans l'ordre.
+//    Membres :
+//      temp_file_hts_for_lookup : tableau de pointeurs vers les tables de
+//                                 hachage temporaires (une par fichier).
+//      num_files : nombre total de fichiers.
+//      filenames_in_order : tableau des noms de fichiers.
 typedef struct {
-  hashtable **temp_file_hts_for_lookup; // Stores temporary HTs for each file
+  hashtable **temp_file_hts_for_lookup;
   size_t num_files;
   char **filenames_in_order;
 } hgo_graph_print_row_context_t;
 
-// fun1 for holdall_apply_context: passes context through, word_ref is what fun2
-// processes.
-// This can be reused.
+//  pass_context_identity : fonction pour holdall_apply_context (en tant que
+//    fun1). Passe simplement le 'context' fourni à la fonction fun2.
+//    'word_ref_ptr' n'est pas utilisé.
 static void *pass_context_identity(void *context, void *word_ref_ptr) {
   (void) word_ref_ptr;
   return context;
 }
 
-// fun2 for holdall_apply_context: prints a row for the given word.
-// Context is now hgo_graph_print_row_context_t*
+//  print_row_via_fun2 : fonction pour holdall_apply_context (en tant que fun2).
+//    Affiche une ligne pour le mot 'word_ref'. La ligne contient le mot, suivi
+//    d'une tabulation, puis pour chaque fichier (selon
+//    actual_context->filenames_in_order), affiche 'x' si le mot est présent
+//    dans la table de hachage temporaire correspondante du fichier, ou '-'
+// sinon.
+//    Renvoie toujours 0 pour continuer le parcours.
 static int print_row_via_fun2(void *word_ref, void *context_from_fun1) {
   const char *current_word_str = (const char *) word_ref;
   hgo_graph_print_row_context_t *actual_context
@@ -489,10 +536,9 @@ static int print_row_via_fun2(void *word_ref, void *context_from_fun1) {
     }
   }
   printf("\n");
-  return 0; // Continue apply
+  return 0;
 }
 
-// --- Main function for graph output ---
 void handle_graph_output(holdall **file_holdalls, size_t num_files,
     char **filenames_in_order, int initial_letters_limit) {
   (void) initial_letters_limit;
@@ -511,15 +557,12 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
     holdall_dispose(&all_unique_words_ha);
     return;
   }
-  // Temporary hashtables for each file, for fast lookup during printing
   hashtable **temp_file_hts_for_lookup = calloc(num_files, sizeof(hashtable *));
   if (temp_file_hts_for_lookup == NULL) {
     fprintf(stderr,
         "Error: Failed to allocate array for temp lookup HTs in graph mode.\n");
     goto cleanup_graph_main_resources;
   }
-  // Note: calloc initializes to NULL pointers.
-  // Populate master registry and all_unique_words_ha
   for (size_t i = 0; i < num_files; ++i) {
     if (file_holdalls[i] == NULL) {
       continue;
@@ -532,10 +575,9 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
         || collect_ctx.error_flag) {
       fprintf(stderr,
           "Error: Failed while collecting unique words for graph mode.\n");
-      goto cleanup_graph_all_resources; // Includes temp_file_hts
+      goto cleanup_graph_all_resources;
     }
   }
-  // Populate temporary lookup hashtables for each file
   for (size_t i = 0; i < num_files; ++i) {
     if (file_holdalls[i] != NULL && holdall_count(file_holdalls[i]) > 0) {
       temp_file_hts_for_lookup[i]
@@ -558,9 +600,6 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
         goto cleanup_graph_all_resources;
       }
     }
-    // If file_holdalls[i] is NULL or empty, temp_file_hts_for_lookup[i]
-    // remains
-    // NULL (from calloc)
   }
 #if defined HOLDALL_EXT && defined WANT_HOLDALL_EXT
   holdall_sort(all_unique_words_ha, compare_strings_for_qsort);
@@ -591,8 +630,6 @@ cleanup_graph_all_resources:
     free(temp_file_hts_for_lookup);
   }
 cleanup_graph_main_resources:
-  holdall_dispose(&all_unique_words_ha); // Elements are pointers to strings in
-                                         // file_holdalls, not freed here.
-  hashtable_dispose(&master_word_registry_ht); // Keys are pointers, not freed
-                                               // by hashtable_dispose.
+  holdall_dispose(&all_unique_words_ha);
+  hashtable_dispose(&master_word_registry_ht);
 }
