@@ -7,8 +7,15 @@
 #include <ctype.h>
 #include <stdbool.h>
 
-// Fonction pour comparer deux chaînes
-int compare_strings(const void *a, const void *b) {
+// Fonction pour comparer deux chaînes (pour qsort via holdall_sort)
+int compare_strings_for_qsort(const void *a, const void *b) {
+  const char *s1 = *(const char **) a;
+  const char *s2 = *(const char **) b;
+  return strcoll(s1, s2);
+}
+
+// Fonction pour comparer deux chaînes (pour hashtable)
+int compare_strings_for_hashtable(const void *a, const void *b) {
   return strcoll((const char *) a, (const char *) b);
 }
 
@@ -99,7 +106,8 @@ holdall *get_words(const char *filename, int initial_letters_limit,
         filename);
     return NULL;
   }
-  hashtable *temp_uniqueness_ht = hashtable_empty(compare_strings, hash_string,
+  hashtable *temp_uniqueness_ht = hashtable_empty(compare_strings_for_hashtable,
+      hash_string,
       0.75);
   if (temp_uniqueness_ht == NULL) {
     fclose(file);
@@ -333,7 +341,8 @@ float jaccard_distance(holdall *ha1, holdall *ha2) {
   // If one is empty and the other is not, common is 0, union_size is count of
   // non-empty.
   // Distance = 1.0 - (0 / count_non_empty) = 1.0. Correct.
-  hashtable *temp_ht_from_ha1 = hashtable_empty(compare_strings, hash_string,
+  hashtable *temp_ht_from_ha1 = hashtable_empty(compare_strings_for_hashtable,
+      hash_string,
       0.75);
   if (temp_ht_from_ha1 == NULL) {
     fprintf(stderr,
@@ -493,7 +502,8 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
         "Error: Failed to allocate memory for holdall in graph mode.\n");
     return;
   }
-  hashtable *master_word_registry_ht = hashtable_empty(compare_strings,
+  hashtable *master_word_registry_ht
+    = hashtable_empty(compare_strings_for_hashtable,
       hash_string, 0.75);
   if (master_word_registry_ht == NULL) {
     fprintf(stderr,
@@ -528,7 +538,8 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
   // Populate temporary lookup hashtables for each file
   for (size_t i = 0; i < num_files; ++i) {
     if (file_holdalls[i] != NULL && holdall_count(file_holdalls[i]) > 0) {
-      temp_file_hts_for_lookup[i] = hashtable_empty(compare_strings,
+      temp_file_hts_for_lookup[i]
+        = hashtable_empty(compare_strings_for_hashtable,
           hash_string, 0.75);
       if (temp_file_hts_for_lookup[i] == NULL) {
         fprintf(stderr, "Error: Failed to create temp lookup HT for file %s.\n",
@@ -552,7 +563,7 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
     // NULL (from calloc)
   }
 #if defined HOLDALL_EXT && defined WANT_HOLDALL_EXT
-  holdall_sort(all_unique_words_ha, compare_strings);
+  holdall_sort(all_unique_words_ha, compare_strings_for_qsort);
 #else
   fprintf(stderr,
       "Warning: holdall_sort not available. Graph output will not be sorted by word.\n");
