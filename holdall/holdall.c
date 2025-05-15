@@ -19,10 +19,10 @@ struct holdall {
 
 holdall *holdall_empty() {
   holdall *ha = malloc(sizeof *ha);
-  if (ha == nullptr) {
-    return nullptr;
+  if (ha == NULL) {
+    return NULL;
   }
-  ha->head = nullptr;
+  ha->head = NULL;
 #if defined HOLDALL_PUT_TAIL
   ha->tailptr = &ha->head;
 #endif
@@ -31,27 +31,27 @@ holdall *holdall_empty() {
 }
 
 void holdall_dispose(holdall **haptr) {
-  if (*haptr == nullptr) {
+  if (*haptr == NULL) {
     return;
   }
   choldall *p = (*haptr)->head;
-  while (p != nullptr) {
+  while (p != NULL) {
     choldall *t = p;
     p = p->next;
     free(t);
   }
   free(*haptr);
-  *haptr = nullptr;
+  *haptr = NULL;
 }
 
 int holdall_put(holdall *ha, void *ref) {
   choldall *p = malloc(sizeof *p);
-  if (p == nullptr) {
+  if (p == NULL) {
     return -1;
   }
   p->ref = ref;
 #if defined HOLDALL_PUT_TAIL
-  p->next = nullptr;
+  p->next = NULL;
   *ha->tailptr = p;
   ha->tailptr = &p->next;
 #else
@@ -68,7 +68,7 @@ size_t holdall_count(holdall *ha) {
 
 int holdall_apply(holdall *ha,
     int (*fun) (void *)) {
-  for (const choldall *p = ha->head; p != nullptr; p = p->next) {
+  for (const choldall *p = ha->head; p != NULL; p = p->next) {
     int r = fun(p->ref);
     if (r != 0) {
       return r;
@@ -80,7 +80,7 @@ int holdall_apply(holdall *ha,
 int holdall_apply_context(holdall *ha,
     void *context, void *(*fun1) (void *context, void *ptr),
     int (*fun2) (void *ptr, void *resultfun1)) {
-  for (const choldall *p = ha->head; p != nullptr; p = p->next) {
+  for (const choldall *p = ha->head; p != NULL; p = p->next) {
     int r = fun2(p->ref, fun1(context, p->ref));
     if (r != 0) {
       return r;
@@ -92,7 +92,7 @@ int holdall_apply_context(holdall *ha,
 int holdall_apply_context2(holdall *ha,
     void *context1, void *(*fun1) (void *context1, void *ptr),
     void *context2, int (*fun2) (void *context2, void *ptr, void *resultfun1)) {
-  for (const choldall *p = ha->head; p != nullptr; p = p->next) {
+  for (const choldall *p = ha->head; p != NULL; p = p->next) {
     int r = fun2(context2, p->ref, fun1(context1, p->ref));
     if (r != 0) {
       return r;
@@ -104,16 +104,16 @@ int holdall_apply_context2(holdall *ha,
 #if defined HOLDALL_EXT && defined WANT_HOLDALL_EXT
 
 void **holdall_to_array(holdall *ha) {
-  if (ha == nullptr || ha->count == 0) {
-    return nullptr;
+  if (ha == NULL || ha->count == 0) {
+    return NULL;
   }
   void **array = (void **) malloc(ha->count * sizeof(void *));
-  if (array == nullptr) {
-    return nullptr;
+  if (array == NULL) {
+    return NULL;
   }
   choldall *p = ha->head;
   size_t i = 0;
-  while (p != nullptr && i < ha->count) {
+  while (p != NULL && i < ha->count) {
     array[i] = p->ref;
     p = p->next;
     i++;

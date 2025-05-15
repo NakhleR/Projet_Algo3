@@ -6,6 +6,7 @@
 #include <errno.h>
 #include "hashtable.h"
 #include "holdall.h"
+#include "holdall_ip.h"
 #include "jdis.h"
 
 #define WORD_LEN_MAX 31

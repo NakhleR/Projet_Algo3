@@ -6,7 +6,7 @@ CFLAGS = -std=c2x \
   -Wall -Wconversion -Werror -Wextra -Wpedantic -Wwrite-strings \
   -O2 \
   -I$(jdis_dir) -I$(hashtable_dir) -I$(holdall_dir) \
-  -DHASHTABLE_STATS=0 -DWANT_HOLDALL_EXT -DHOLDALL_EXT
+  -DHASHTABLE_STATS=0 -DWANT_HOLDALL_EXT
 vpath %.c $(jdis_dir) $(hashtable_dir) $(holdall_dir)
 vpath %.h $(jdis_dir) $(hashtable_dir) $(holdall_dir)
 objects = main.o jdis.o hashtable.o holdall.o
@@ -24,10 +24,10 @@ clean:
 $(executable): $(objects)
 	$(CC) $(objects) -o $(executable)
 
-main.o: main.c jdis.h hashtable.h holdall.h
+main.o: main.c jdis.h hashtable.h hashtable_ip.h holdall.h holdall_ip.h
 jdis.o: jdis.c jdis.h
-hashtable.o: hashtable.c hashtable.h
-holdall.o: holdall.c holdall.h
+hashtable.o: hashtable.c hashtable.h hashtable_ip.h
+holdall.o: holdall.c holdall.h holdall_ip.h
 
 include $(makefile_indicator)
 
