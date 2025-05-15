@@ -48,7 +48,7 @@ static int free_holdall_word(void *word_ref) {
 }
 
 void jdis_free_holdall_content(holdall *ha) {
-  if (ha == NULL) {
+  if (ha == nullptr) {
     return;
   }
   holdall_apply(ha, free_holdall_word);
@@ -80,14 +80,14 @@ static int process_and_add_words(
         filename_for_log,
         initial_letters_limit);
   }
-  if (hashtable_search(temp_uniqueness_ht, word_to_add) == NULL) {
+  if (hashtable_search(temp_uniqueness_ht, word_to_add) == nullptr) {
     char *word_copy = strdup(word_to_add);
-    if (word_copy == NULL) {
+    if (word_copy == nullptr) {
       fprintf(stderr, "Error: strdup failed for word '%s' in file '%s'\n",
           word_to_add, filename_for_log);
       return -1;
     }
-    if (hashtable_add(temp_uniqueness_ht, word_copy, (void *) 1) == NULL) {
+    if (hashtable_add(temp_uniqueness_ht, word_copy, (void *) 1) == nullptr) {
       fprintf(stderr,
           "Error: hashtable_add failed for word '%s' in file '%s'\n",
           word_copy, filename_for_log);
@@ -107,33 +107,33 @@ static int process_and_add_words(
 
 holdall *get_words(const char *filename, int initial_letters_limit,
     bool punctuation_as_space) {
-  FILE *file = NULL;
+  FILE *file = nullptr;
   file = fopen(filename, "r");
-  if (file == NULL) {
+  if (file == nullptr) {
     fprintf(stderr, "Error: unable to open file '%s'\n", filename);
-    return NULL;
+    return nullptr;
   }
   holdall *words_ha = holdall_empty();
-  if (words_ha == NULL) {
+  if (words_ha == nullptr) {
     fclose(file);
     fprintf(stderr, "Error: Failed to allocate holdall for file '%s'\n",
         filename);
-    return NULL;
+    return nullptr;
   }
   hashtable *temp_uniqueness_ht = hashtable_empty(compare_strings_for_hashtable,
       hash_string,
       0.75);
-  if (temp_uniqueness_ht == NULL) {
+  if (temp_uniqueness_ht == nullptr) {
     fclose(file);
     holdall_dispose(&words_ha);
     fprintf(stderr, "Error: Failed to allocate temp hashtable for file '%s'\n",
         filename);
-    return NULL;
+    return nullptr;
   }
   char static_word_buffer[256];
-  char *dynamic_word_buffer = NULL;
+  char *dynamic_word_buffer = nullptr;
   size_t dynamic_buffer_capacity = 0;
-  char *current_word_assembly_buffer = NULL;
+  char *current_word_assembly_buffer = nullptr;
   char processed_word_buffer[256];
   int char_code;
   int word_idx = 0;
@@ -143,10 +143,10 @@ holdall *get_words(const char *filename, int initial_letters_limit,
         || (punctuation_as_space && ispunct(current_char));
     if (!is_delimiter) {
       if (initial_letters_limit == 0) {
-        if (dynamic_word_buffer == NULL) {
+        if (dynamic_word_buffer == nullptr) {
           dynamic_buffer_capacity = 256;
           dynamic_word_buffer = malloc(dynamic_buffer_capacity);
-          if (dynamic_word_buffer == NULL) {
+          if (dynamic_word_buffer == nullptr) {
             fprintf(stderr,
                 "Error: malloc failed for dynamic_word_buffer in file '%s'\n",
                 filename);
@@ -156,7 +156,7 @@ holdall *get_words(const char *filename, int initial_letters_limit,
           dynamic_buffer_capacity *= 2;
           char *temp_realloc = realloc(dynamic_word_buffer,
               dynamic_buffer_capacity);
-          if (temp_realloc == NULL) {
+          if (temp_realloc == nullptr) {
             fprintf(stderr,
                 "Error: realloc failed for dynamic_word_buffer in file '%s'\n",
                 filename);
@@ -210,28 +210,28 @@ holdall *get_words(const char *filename, int initial_letters_limit,
     }
   }
   fclose(file);
-  if (dynamic_word_buffer != NULL) {
+  if (dynamic_word_buffer != nullptr) {
     free(dynamic_word_buffer);
   }
   hashtable_dispose(&temp_uniqueness_ht);
   return words_ha;
 cleanup_error:
-  if (file != NULL) {
+  if (file != nullptr) {
     fclose(file);
   }
-  if (dynamic_word_buffer != NULL) {
+  if (dynamic_word_buffer != nullptr) {
     free(dynamic_word_buffer);
   }
-  if (words_ha != NULL) {
+  if (words_ha != nullptr) {
     jdis_free_holdall_content(words_ha);
     holdall_dispose(&words_ha);
   }
-  if (temp_uniqueness_ht != NULL) {
+  if (temp_uniqueness_ht != nullptr) {
     hashtable_dispose(&temp_uniqueness_ht);
   }
   fprintf(stderr, "An error occurred during word processing for file '%s'.\n",
       filename);
-  return NULL;
+  return nullptr;
 }
 
 void print_usage(void) {
@@ -299,7 +299,7 @@ void print_help(void) {
 //  fun1_populate_temp_ht : fonction pour holdall_apply_context. Ajoute word_ref
 //    à la table de hachage pointée par context_temp_ht.
 //    Renvoie le résultat de hashtable_add (un pointeur vers la valeur associée
-//    à la clé, ou NULL en cas d'erreur ou si la clé existait déjà et que la
+//    à la clé, ou nullptr en cas d'erreur ou si la clé existait déjà et que la
 //    table ne permet pas les doublons, bien qu'ici les mots soient uniques
 //    par construction de ha1).
 static void *fun1_populate_temp_ht(void *context_temp_ht, void *word_ref) {
@@ -310,12 +310,12 @@ static void *fun1_populate_temp_ht(void *context_temp_ht, void *word_ref) {
 //  fun2_check_populate_error : fonction pour holdall_apply_context. Vérifie si
 //    l'opération d'ajout (dont le résultat est add_result_from_fun1) dans la
 //    table de hachage a échoué.
-//    Renvoie 1 si add_result_from_fun1 est NULL (erreur), sinon 0.
+//    Renvoie 1 si add_result_from_fun1 est nullptr (erreur), sinon 0.
 //    word_ref n'est pas utilisé.
 static int fun2_check_populate_error(void *word_ref,
     void *add_result_from_fun1) {
   (void) word_ref;
-  return (add_result_from_fun1 == NULL) ? 1 : 0;
+  return (add_result_from_fun1 == nullptr) ? 1 : 0;
 }
 
 //  jd_count_common_context_t : structure de contexte utilisée pour compter les
@@ -347,14 +347,14 @@ static int jd_count_common_check_word(void *word_ref_from_ha,
     void *ctx_from_fun1) {
   jd_count_common_context_t *context
     = (jd_count_common_context_t *) ctx_from_fun1;
-  if (hashtable_search(context->ht_to_search, word_ref_from_ha) != NULL) {
+  if (hashtable_search(context->ht_to_search, word_ref_from_ha) != nullptr) {
     (*context->common_count)++;
   }
   return 0;
 }
 
 float jaccard_distance(holdall *ha1, holdall *ha2) {
-  if (ha1 == NULL || ha2 == NULL) {
+  if (ha1 == nullptr || ha2 == nullptr) {
     return 1.0f;
   }
   size_t count1 = holdall_count(ha1);
@@ -365,7 +365,7 @@ float jaccard_distance(holdall *ha1, holdall *ha2) {
   hashtable *temp_ht_from_ha1 = hashtable_empty(compare_strings_for_hashtable,
       hash_string,
       0.75);
-  if (temp_ht_from_ha1 == NULL) {
+  if (temp_ht_from_ha1 == nullptr) {
     fprintf(stderr,
         "Error: Failed to create temp hashtable for Jaccard distance.\n");
     return 1.0f;
@@ -390,11 +390,11 @@ float jaccard_distance(holdall *ha1, holdall *ha2) {
 }
 
 void jdis_dispose_holdall_array(holdall **ha_array, size_t count) {
-  if (ha_array == NULL) {
+  if (ha_array == nullptr) {
     return;
   }
   for (size_t i = 0; i < count; ++i) {
-    if (ha_array[i] != NULL) {
+    if (ha_array[i] != nullptr) {
       jdis_free_holdall_content(ha_array[i]);
       holdall_dispose(&ha_array[i]);
     }
@@ -429,9 +429,9 @@ static void *hgo_populate_temp_ht_pass_ctx(void *ctx, void *ref) {
 static int hgo_populate_temp_ht_add_word(void *word_ref, void *ctx_from_fun1) {
   hgo_populate_temp_ht_context_t *context
     = (hgo_populate_temp_ht_context_t *) ctx_from_fun1;
-  if (hashtable_add(context->ht, word_ref, (void *) 1) == NULL) {
+  if (hashtable_add(context->ht, word_ref, (void *) 1) == nullptr) {
     void *search_result = hashtable_search(context->ht, word_ref);
-    if (search_result == NULL) {
+    if (search_result == nullptr) {
       context->error_flag = 1;
       return 1;
     }
@@ -476,9 +476,9 @@ static int hgo_collect_words_add_master(void *word_key_ref,
   hgo_collect_words_context_t *ctx
     = (hgo_collect_words_context_t *) ctx_from_fun1;
   const char *word_key = (const char *) word_key_ref;
-  if (hashtable_search(ctx->master_registry_ht, word_key) == NULL) {
+  if (hashtable_search(ctx->master_registry_ht, word_key) == nullptr) {
     if (hashtable_add(ctx->master_registry_ht, (void *) word_key,
-        (void *) 1) == NULL) {
+        (void *) 1) == nullptr) {
       ctx->error_flag = 1;
       return 1;
     }
@@ -527,9 +527,9 @@ static int print_row_via_fun2(void *word_ref, void *context_from_fun1) {
   printf("%s", current_word_str);
   for (size_t j = 0; j < actual_context->num_files; ++j) {
     printf("\t");
-    if (actual_context->temp_file_hts_for_lookup[j] != NULL
+    if (actual_context->temp_file_hts_for_lookup[j] != nullptr
         && hashtable_search(actual_context->temp_file_hts_for_lookup[j],
-        current_word_str) != NULL) {
+        current_word_str) != nullptr) {
       printf("x");
     } else {
       printf("-");
@@ -543,7 +543,7 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
     char **filenames_in_order, int initial_letters_limit) {
   (void) initial_letters_limit;
   holdall *all_unique_words_ha = holdall_empty();
-  if (all_unique_words_ha == NULL) {
+  if (all_unique_words_ha == nullptr) {
     fprintf(stderr,
         "Error: Failed to allocate memory for holdall in graph mode.\n");
     return;
@@ -551,20 +551,20 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
   hashtable *master_word_registry_ht
     = hashtable_empty(compare_strings_for_hashtable,
       hash_string, 0.75);
-  if (master_word_registry_ht == NULL) {
+  if (master_word_registry_ht == nullptr) {
     fprintf(stderr,
         "Error: Failed to allocate memory for master hashtable in graph mode.\n");
     holdall_dispose(&all_unique_words_ha);
     return;
   }
   hashtable **temp_file_hts_for_lookup = calloc(num_files, sizeof(hashtable *));
-  if (temp_file_hts_for_lookup == NULL) {
+  if (temp_file_hts_for_lookup == nullptr) {
     fprintf(stderr,
         "Error: Failed to allocate array for temp lookup HTs in graph mode.\n");
     goto cleanup_graph_main_resources;
   }
   for (size_t i = 0; i < num_files; ++i) {
-    if (file_holdalls[i] == NULL) {
+    if (file_holdalls[i] == nullptr) {
       continue;
     }
     hgo_collect_words_context_t collect_ctx = {
@@ -579,11 +579,11 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
     }
   }
   for (size_t i = 0; i < num_files; ++i) {
-    if (file_holdalls[i] != NULL && holdall_count(file_holdalls[i]) > 0) {
+    if (file_holdalls[i] != nullptr && holdall_count(file_holdalls[i]) > 0) {
       temp_file_hts_for_lookup[i]
         = hashtable_empty(compare_strings_for_hashtable,
           hash_string, 0.75);
-      if (temp_file_hts_for_lookup[i] == NULL) {
+      if (temp_file_hts_for_lookup[i] == nullptr) {
         fprintf(stderr, "Error: Failed to create temp lookup HT for file %s.\n",
             filenames_in_order[i]);
         goto cleanup_graph_all_resources;
@@ -621,9 +621,9 @@ void handle_graph_output(holdall **file_holdalls, size_t num_files,
   holdall_apply_context(all_unique_words_ha, &actual_print_context,
       pass_context_identity, print_row_via_fun2);
 cleanup_graph_all_resources:
-  if (temp_file_hts_for_lookup != NULL) {
+  if (temp_file_hts_for_lookup != nullptr) {
     for (size_t i = 0; i < num_files; ++i) {
-      if (temp_file_hts_for_lookup[i] != NULL) {
+      if (temp_file_hts_for_lookup[i] != nullptr) {
         hashtable_dispose(&temp_file_hts_for_lookup[i]);
       }
     }

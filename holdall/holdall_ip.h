@@ -19,4 +19,5 @@
 
 #define HOLDALL_EXT
 
-//  holdall_sort : temps ... ; espace ...
+//  holdall_sort : temps en O(N log N) ; espace en O(N) (N étant le nombre d'
+//    éléménts)

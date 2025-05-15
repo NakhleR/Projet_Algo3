@@ -11,12 +11,14 @@
 //    de l'uniformité de la fonction de hachage.
 
 //  hashtable_empty : temps constant ; espace constant.
-//  hashtable_dispose : temps linéaire ; espace constant.
+//  hashtable_dispose : temps en O(N + M) où N est le nombre d'entrées et M le
+//                     nombre de compartiments ; espace constant.
 //  hashtable_add : temps amorti constant ; espace constant.
 //  hashtable_remove : temps constant ; espace constant.
 //  hashtable_search : temps constant ; espace constant.
 
 #define HASHTABLE_EXT
 
-//  hashtable_get_stats : temps linéaire ; espace constant.
+//  hashtable_get_stats : temps temps en O(N + M) où N est le nombre d'entrées
+// et M le nombre de compartiments ; espace constant.
 //  hashtable_fprint_stats : temps au plus linéaire ; espace constant.

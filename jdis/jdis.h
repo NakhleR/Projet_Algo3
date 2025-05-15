@@ -27,7 +27,7 @@
 //      punctuation_as_space : si true, traite la ponctuation comme des
 //                               espaces séparateurs.
 //    Renvoie : un pointeur vers un holdall contenant les mots uniques (chaînes
-//              allouées dynamiquement), ou NULL en cas d'erreur.
+//              allouées dynamiquement), ou nullptr en cas d'erreur.
 extern holdall *get_words(const char *filename, int initial_letters_limit,
     bool punctuation_as_space);
 
@@ -37,7 +37,7 @@ extern holdall *get_words(const char *filename, int initial_letters_limit,
 //      ha1 : holdall contenant les mots du premier ensemble.
 //      ha2 : holdall contenant les mots du second ensemble.
 //    Renvoie : la dissimilarité de Jaccard (entre 0.0 et 1.0). Renvoie 1.0f si
-//              l'un des holdalls est NULL ou en cas d'erreur d'allocation
+//              l'un des holdalls est nullptr ou en cas d'erreur d'allocation
 // mémoire
 //              interne. Renvoie 0.0f si les deux ensembles sont vides.
 extern float jaccard_distance(holdall *ha1, holdall *ha2);

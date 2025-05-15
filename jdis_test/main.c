@@ -9,18 +9,14 @@
 #include "holdall_ip.h"
 #include "jdis.h"
 
-#define WORD_LEN_MAX 31
-#define MAX_FILES_SUPPORTED 64 // Define the maximum number of files
+#define MAX_FILES_SUPPORTED 64
 
 int main(int argc, char *argv[]) {
-  setlocale(LC_ALL, ""); // Set locale for sorting, as mentioned in help
+  setlocale(LC_ALL, "");
   bool graph_mode = false;
   int initial_letters_limit = 0;
-  bool punctuation_as_space = false; // Added for -p option
-  int opt_args_count = 0; // Number of argv slots taken by options like -g, -i,
-                          // VALUE
-  // --- Argument Parsing ---
-  // Start checking from argv[1]
+  bool punctuation_as_space = false;
+  int opt_args_count = 0;
   for (int i = 1; i < argc; ++i) {
     if (strcmp(argv[i], "-g") == 0 || strcmp(argv[i], "--graph") == 0) {
       graph_mode = true;
@@ -32,7 +28,7 @@ int main(int argc, char *argv[]) {
       print_usage();
       return EXIT_SUCCESS;
     } else if (strcmp(argv[i], "-i") == 0) {
-      opt_args_count++; // for -i itself
+      opt_args_count++;
       if (i + 1 < argc) {
         char *endptr;
         long val = strtol(argv[i + 1], &endptr, 10);
@@ -44,8 +40,8 @@ int main(int argc, char *argv[]) {
           return EXIT_FAILURE;
         }
         initial_letters_limit = (int) val;
-        i++; // Consume the VALUE argument
-        opt_args_count++; // for VALUE
+        i++;
+        opt_args_count++;
       } else {
         fprintf(stderr, "jdis: Option -i requires a value.\n");
         return EXIT_FAILURE;
@@ -62,83 +58,70 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
       }
       initial_letters_limit = (int) val;
-      opt_args_count++; // for --initial=VALUE
+      opt_args_count++;
     } else if (strcmp(argv[i], "-p") == 0 || strcmp(argv[i],
         "--punctuation-like-space") == 0) {
       punctuation_as_space = true;
       opt_args_count++;
     } else {
-      // Check if it looks like an option but is unrecognized
       if (argv[i][0] == '-') {
         fprintf(stderr, "jdis: unrecognized option '%s'\n", argv[i]);
         fprintf(stderr, "Try 'jdis --help' for more information.\n");
         return EXIT_FAILURE;
       }
-      // Assuming first non-option is a filename. Stop option parsing.
       break;
     }
   }
   int first_file_idx = 1 + opt_args_count;
-  // Calculate num_actual_files. It must be non-negative.
-  // If argc < first_file_idx, then there are no file arguments.
   size_t num_actual_files = 0;
   if (argc >= first_file_idx) {
     num_actual_files = (size_t) (argc - first_file_idx);
   }
-  // Check for maximum number of files supported
   if (num_actual_files > MAX_FILES_SUPPORTED) {
     fprintf(stderr, "jdis: Too many files. At most %d files are supported.\n",
         MAX_FILES_SUPPORTED);
     fprintf(stderr, "Try 'jdis --help' for more information.\n");
     return EXIT_FAILURE;
   }
-  if (num_actual_files < 2 && graph_mode == false) { // Jaccard needs at least 2
-                                                     // files
+  if (num_actual_files < 2 && graph_mode == false) {
     fprintf(stderr,
         "jdis: At least two files are required for Jaccard distance.\n");
     fprintf(stderr, "Try 'jdis --help' for more information.\n");
     return EXIT_FAILURE;
   }
-  if (num_actual_files < 1 && graph_mode == true) { // Graph mode needs at least
-                                                    // 1 file
+  if (num_actual_files < 2 && graph_mode == true) {
     fprintf(stderr, "jdis: At least one file is required for graph mode.\n");
     fprintf(stderr, "Try 'jdis --help' for more information.\n");
     return EXIT_FAILURE;
   }
-  if (num_actual_files == 0 && graph_mode == false) { // General case if
-                                                      // previous checks
-    // don't catch
+  if (num_actual_files == 0 && graph_mode == false) {
     fprintf(stderr, "jdis: Missing operands (filenames).\n");
     fprintf(stderr, "Try 'jdis --help' for more information.\n");
     return EXIT_FAILURE;
   }
-  // --- File Processing ---
   holdall **ht_tab = malloc(sizeof(*ht_tab) * num_actual_files);
-  if (ht_tab == NULL) {
+  if (ht_tab == nullptr) {
     fprintf(stderr, "Failed to allocate memory for hashtable array\n");
     return EXIT_FAILURE;
   }
-  // Initialize all pointers to NULL for safe disposal in case of early exit
   for (size_t i = 0; i < num_actual_files; ++i) {
-    ht_tab[i] = NULL;
+    ht_tab[i] = nullptr;
   }
   char **actual_filenames = &argv[first_file_idx];
   for (size_t i = 0; i < num_actual_files; ++i) {
     ht_tab[i] = get_words(actual_filenames[i], initial_letters_limit,
         punctuation_as_space);
-    if (ht_tab[i] == NULL) {
+    if (ht_tab[i] == nullptr) {
       fprintf(stderr, "An Error occurred while processing file: %s\n",
           actual_filenames[i]);
       jdis_dispose_holdall_array(ht_tab, num_actual_files);
       return EXIT_FAILURE;
     }
   }
-  // --- Output Generation ---
   if (graph_mode == true) {
     handle_graph_output(ht_tab, num_actual_files, actual_filenames,
         initial_letters_limit);
   } else {
-    // Jaccard distance calculation (requires at least 2 files, checked above)
     for (size_t j = 0; j < num_actual_files; ++j) {
       for (size_t k = j + 1; k < num_actual_files; ++k) {
         float d = jaccard_distance(ht_tab[j], ht_tab[k]);
