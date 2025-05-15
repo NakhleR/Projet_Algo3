@@ -23,19 +23,8 @@ size_t hash_string(const void *key) {
   return hash;
 }
 
-// Fonction de callback pour compter les mots
-//int count_words(void *key, void *val) {
-//(void)val; // Unused
-//holdall_put(all_words, key);
-//total++;
-//if (hashtable_search(ht2, key) != nullptr) {
-//common++;
-//}
-//return 0;
-//}
-
 // --- Static helper function for freeing words in holdall ---
-static int free_word_in_holdall_callback(void *word_ref) {
+static int free_holdall_word(void *word_ref) {
   free(word_ref);
   return 0; // Continue apply
 }
@@ -45,241 +34,181 @@ void jdis_free_holdall_content(holdall *ha) {
   if (ha == NULL) {
     return;
   }
-  holdall_apply(ha, free_word_in_holdall_callback);
+  holdall_apply(ha, free_holdall_word);
 }
 
-// Modified get_words to return holdall* and handle punctuation_as_space, and
-// dynamic buffer
+// --- Static helper function for processing and adding a word ---
+static int process_and_add_words(
+    const char *word_to_process_original,
+    int initial_letters_limit,
+    holdall *words_ha,
+    hashtable *temp_uniqueness_ht,
+    char *processed_word_buffer_for_truncation,
+    const char *filename_for_log) {
+  const char *word_to_add = word_to_process_original;
+  if (initial_letters_limit > 0
+      && (int) strlen(word_to_process_original) > initial_letters_limit) {
+    strncpy(processed_word_buffer_for_truncation, word_to_process_original,
+        (size_t) initial_letters_limit);
+    processed_word_buffer_for_truncation[initial_letters_limit] = '\0';
+    word_to_add = processed_word_buffer_for_truncation;
+    fprintf(stderr,
+        "Warning: Word '%s...' truncated to '%s' from file '%s' due to -i %d limit.\n",
+        word_to_process_original,
+        processed_word_buffer_for_truncation,
+        filename_for_log,
+        initial_letters_limit);
+  }
+  if (hashtable_search(temp_uniqueness_ht, word_to_add) == NULL) {
+    char *word_copy = strdup(word_to_add);
+    if (word_copy == NULL) {
+      fprintf(stderr, "Error: strdup failed for word '%s' in file '%s'\n",
+          word_to_add, filename_for_log);
+      return -1; // Error
+    }
+    if (hashtable_add(temp_uniqueness_ht, word_copy, (void *) 1) == NULL) {
+      fprintf(stderr,
+          "Error: hashtable_add failed for word '%s' in file '%s'\n",
+          word_copy, filename_for_log);
+      free(word_copy);
+      return -1;
+    }
+    if (holdall_put(words_ha, word_copy) != 0) {
+      fprintf(stderr, "Error: holdall_put failed for word '%s' in file '%s'\n",
+          word_copy, filename_for_log);
+      hashtable_remove(temp_uniqueness_ht, word_copy);
+      free(word_copy);
+      return -1;
+    }
+  }
+  return 0;
+}
+
 holdall *get_words(const char *filename, int initial_letters_limit,
     bool punctuation_as_space) {
-  FILE *file;
-  bool reading_stdin = (strcmp(filename, "-") == 0);
-  if (reading_stdin) {
-    file = stdin;
-  } else {
-    file = fopen(filename, "r");
-    if (file == NULL) {
-      fprintf(stderr, "Error: unable to open %s\n", filename);
-      return NULL;
-    }
+  FILE *file = NULL;
+  file = fopen(filename, "r");
+  if (file == NULL) {
+    fprintf(stderr, "Error: unable to open file '%s'\n", filename);
+    return NULL;
   }
   holdall *words_ha = holdall_empty();
   if (words_ha == NULL) {
-    if (!reading_stdin) {
-      fclose(file);
-    }
-    fprintf(stderr, "Error: Failed to allocate holdall in get_words for %s\n",
-        reading_stdin ? "stdin" : filename);
+    fclose(file);
+    fprintf(stderr, "Error: Failed to allocate holdall for file '%s'\n",
+        filename);
     return NULL;
   }
-  hashtable *temp_uniqueness_ht
-    = hashtable_empty(compare_strings, hash_string, 0.75);
+  hashtable *temp_uniqueness_ht = hashtable_empty(compare_strings, hash_string,
+      0.75);
   if (temp_uniqueness_ht == NULL) {
-    if (!reading_stdin) {
-      fclose(file);
-    }
+    fclose(file);
     holdall_dispose(&words_ha);
-    fprintf(stderr,
-        "Error: Failed to allocate temp hashtable in get_words for %s\n",
-        reading_stdin ? "stdin" : filename);
+    fprintf(stderr, "Error: Failed to allocate temp hashtable for file '%s'\n",
+        filename);
     return NULL;
   }
-  char static_word_buffer[256]; // Used when initial_letters_limit > 0 (and word
-                                // fits)
-  char *dynamic_word_buffer = NULL; // Used when initial_letters_limit == 0
+  char static_word_buffer[256];
+  char *dynamic_word_buffer = NULL;
   size_t dynamic_buffer_capacity = 0;
-  char *current_word_assembly_buffer = NULL; // Points to static or dynamic
-                                             // buffer
-  char processed_word_buffer[256]; // For truncation output if needed
+  char *current_word_assembly_buffer = NULL;
+  char processed_word_buffer[256];
   int char_code;
   int word_idx = 0;
   while ((char_code = fgetc(file)) != EOF) {
     char current_char = (char) char_code;
-    bool is_delimiter
-      = isspace(current_char)
+    bool is_delimiter = isspace(current_char)
         || (punctuation_as_space && ispunct(current_char));
     if (!is_delimiter) {
-      if (initial_letters_limit == 0) { // Use dynamic buffer
-        if (dynamic_word_buffer == NULL) { // First char of a word, allocate
-          dynamic_buffer_capacity = 256; // Initial capacity
+      if (initial_letters_limit == 0) {
+        if (dynamic_word_buffer == NULL) {
+          dynamic_buffer_capacity = 256;
           dynamic_word_buffer = malloc(dynamic_buffer_capacity);
           if (dynamic_word_buffer == NULL) {
             fprintf(stderr,
-                "Error: malloc failed for dynamic_word_buffer in %s\n",
-                reading_stdin ? "stdin" : filename);
-            goto cleanup_error_dynamic_buffer; // Unified cleanup
+                "Error: malloc failed for dynamic_word_buffer in file '%s'\n",
+                filename);
+            goto cleanup_error;
           }
-        } else if ((size_t) word_idx >= dynamic_buffer_capacity - 1) { // -1 for
-                                                                       // NULL
-                                                                       // terminator
+        } else if ((size_t) word_idx >= dynamic_buffer_capacity - 1) {
           dynamic_buffer_capacity *= 2;
           char *temp_realloc = realloc(dynamic_word_buffer,
               dynamic_buffer_capacity);
           if (temp_realloc == NULL) {
             fprintf(stderr,
-                "Error: realloc failed for dynamic_word_buffer in %s\n",
-                reading_stdin ? "stdin" : filename);
-            goto cleanup_error_dynamic_buffer; // Unified cleanup
+                "Error: realloc failed for dynamic_word_buffer in file '%s'\n",
+                filename);
+            goto cleanup_error;
           }
           dynamic_word_buffer = temp_realloc;
         }
         dynamic_word_buffer[word_idx++] = current_char;
         current_word_assembly_buffer = dynamic_word_buffer;
-      } else { // initial_letters_limit > 0. Use static_word_buffer if word part
-               // fits, else process.
+      } else {
         if ((size_t) word_idx < sizeof(static_word_buffer) - 1) {
           static_word_buffer[word_idx++] = current_char;
-        } else { // Static buffer is full, process current content
-          static_word_buffer[word_idx] = '\0'; // Null-terminate current segment
+        } else {
+          static_word_buffer[word_idx] = '\0';
           current_word_assembly_buffer = static_word_buffer;
-          // --- Process word (common block) --- START
-          const char *word_to_process = current_word_assembly_buffer;
-          // Truncation for -i > 0 is applied here
-          if ((int) strlen(current_word_assembly_buffer)
-              > initial_letters_limit) {
-            strncpy(processed_word_buffer, current_word_assembly_buffer,
-                (size_t) initial_letters_limit);
-            processed_word_buffer[initial_letters_limit] = '\0';
-            word_to_process = processed_word_buffer;
-            fprintf(stderr,
-                "Warning: Word '%s...' truncated to '%s' from file '%s' due to -i %d limit.\n",
-                current_word_assembly_buffer, processed_word_buffer,
-                reading_stdin ? "stdin" : filename, initial_letters_limit);
+          if (process_and_add_words(current_word_assembly_buffer,
+              initial_letters_limit, words_ha,
+              temp_uniqueness_ht, processed_word_buffer,
+              filename) != 0) {
+            goto cleanup_error;
           }
-          if (hashtable_search(temp_uniqueness_ht, word_to_process) == NULL) {
-            char *word_copy = strdup(word_to_process);
-            if (word_copy == NULL) {
-              goto cleanup_error_dynamic_buffer;
-            }
-            if (hashtable_add(temp_uniqueness_ht, word_copy,
-                (void *) 1) == NULL) {
-              free(word_copy);
-              goto cleanup_error_dynamic_buffer;
-            }
-            if (holdall_put(words_ha, word_copy) != 0) {
-              hashtable_remove(temp_uniqueness_ht, word_copy);
-              free(word_copy);
-              goto cleanup_error_dynamic_buffer;
-            }
-          }
-          // --- Process word (common block) --- END
-          word_idx = 0; // Reset static_word_buffer index
-          static_word_buffer[word_idx++] = current_char; // current_char starts
-                                                         // the new segment
+          word_idx = 0;
+          static_word_buffer[word_idx++] = current_char;
         }
         current_word_assembly_buffer = static_word_buffer;
       }
-    } else { // Is a delimiter
-      if (word_idx > 0) { // We have a word in the buffer
-        // Determine which buffer was being used based on initial_letters_limit
+    } else {
+      if (word_idx > 0) {
         current_word_assembly_buffer = (initial_letters_limit
             == 0) ? dynamic_word_buffer : static_word_buffer;
         current_word_assembly_buffer[word_idx] = '\0';
-        // --- Process word (common block) --- START
-        const char *word_to_process = current_word_assembly_buffer;
-        if (initial_letters_limit > 0
-            && (int) strlen(current_word_assembly_buffer)
-            > initial_letters_limit) {
-          strncpy(processed_word_buffer, current_word_assembly_buffer,
-              (size_t) initial_letters_limit);
-          processed_word_buffer[initial_letters_limit] = '\0';
-          word_to_process = processed_word_buffer;
-          fprintf(stderr,
-              "Warning: Word '%s...' truncated to '%s' from file '%s' due to -i %d limit.\n",
-              current_word_assembly_buffer, processed_word_buffer,
-              reading_stdin ? "stdin" : filename, initial_letters_limit);
+        if (process_and_add_words(current_word_assembly_buffer,
+            initial_letters_limit, words_ha,
+            temp_uniqueness_ht, processed_word_buffer,
+            filename) != 0) {
+          goto cleanup_error;
         }
-        // No specific truncation for initial_letters_limit == 0 here, full word
-        // is processed.
-        if (hashtable_search(temp_uniqueness_ht, word_to_process) == NULL) {
-          char *word_copy = strdup(word_to_process);
-          if (word_copy == NULL) {
-            goto cleanup_error_dynamic_buffer;
-          }
-          if (hashtable_add(temp_uniqueness_ht, word_copy,
-              (void *) 1) == NULL) {
-            free(word_copy);
-            goto cleanup_error_dynamic_buffer;
-          }
-          if (holdall_put(words_ha, word_copy) != 0) {
-            hashtable_remove(temp_uniqueness_ht, word_copy);
-            free(word_copy);
-            goto cleanup_error_dynamic_buffer;
-          }
-        }
-        // --- Process word (common block) --- END
-        word_idx = 0; // Reset for next word
-        if (initial_letters_limit == 0 && dynamic_word_buffer != NULL) {
-          // For dynamic buffer, effectively reset it for the next word by only
-          // changing word_idx.
-          // Content will be overwritten or buffer realloc'd if needed.
-        }
+        word_idx = 0;
       }
     }
   }
-  // After EOF, check if there's a pending word in the buffer
   if (word_idx > 0) {
     current_word_assembly_buffer = (initial_letters_limit
         == 0) ? dynamic_word_buffer : static_word_buffer;
     current_word_assembly_buffer[word_idx] = '\0';
-    // --- Process word (common block) --- START
-    const char *word_to_process = current_word_assembly_buffer;
-    if (initial_letters_limit > 0
-        && (int) strlen(current_word_assembly_buffer) > initial_letters_limit) {
-      strncpy(processed_word_buffer, current_word_assembly_buffer,
-          (size_t) initial_letters_limit);
-      processed_word_buffer[initial_letters_limit] = '\0';
-      word_to_process = processed_word_buffer;
-      fprintf(stderr,
-          "Warning: Word '%s...' truncated to '%s' from file '%s' due to -i %d limit.\n",
-          current_word_assembly_buffer, processed_word_buffer,
-          reading_stdin ? "stdin" : filename, initial_letters_limit);
+    if (process_and_add_words(current_word_assembly_buffer,
+        initial_letters_limit, words_ha,
+        temp_uniqueness_ht, processed_word_buffer,
+        filename) != 0) {
+      goto cleanup_error;
     }
-    if (hashtable_search(temp_uniqueness_ht, word_to_process) == NULL) {
-      char *word_copy = strdup(word_to_process);
-      if (word_copy == NULL) {
-        goto cleanup_error_dynamic_buffer;
-      }
-      if (hashtable_add(temp_uniqueness_ht, word_copy, (void *) 1) == NULL) {
-        free(word_copy);
-        goto cleanup_error_dynamic_buffer;
-      }
-      if (holdall_put(words_ha, word_copy) != 0) {
-        hashtable_remove(temp_uniqueness_ht, word_copy);
-        free(word_copy);
-        goto cleanup_error_dynamic_buffer;
-      }
-    }
-    // --- Process word (common block) --- END
   }
-  if (!reading_stdin) {
-    fclose(file);
-  }
+  fclose(file);
   if (dynamic_word_buffer != NULL) {
     free(dynamic_word_buffer);
   }
   hashtable_dispose(&temp_uniqueness_ht);
   return words_ha;
-cleanup_error_dynamic_buffer:
-  // Unified cleanup path
+cleanup_error:
+  if (file != NULL) {
+    fclose(file);
+  }
   if (dynamic_word_buffer != NULL) {
     free(dynamic_word_buffer);
   }
-  // Fall through to existing resource cleanup for file, holdall, hashtable
-  // cleanup_error: // This label is implicitly part of the above now
-  if (!reading_stdin && file != NULL && file != stdin) {
-    fclose(file); // Ensure file is valid before closing
-  }
-  if (words_ha != NULL) { // Ensure words_ha was allocated before freeing
-                          // content
+  if (words_ha != NULL) {
     jdis_free_holdall_content(words_ha);
     holdall_dispose(&words_ha);
   }
   if (temp_uniqueness_ht != NULL) {
     hashtable_dispose(&temp_uniqueness_ht);
   }
-  fprintf(stderr, "Error during word processing for %s\n",
-      reading_stdin ? "stdin" : filename);
+  fprintf(stderr, "An error occurred during word processing for file '%s'.\n",
+      filename);
   return NULL;
 }
 
